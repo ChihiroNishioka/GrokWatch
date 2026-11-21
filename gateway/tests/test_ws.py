@@ -232,6 +232,63 @@ async def test_cancel_ack_echoes_session_number():
             assert (await device.receive())["state"] == "listening"
 
 
+async def test_turn_state_and_error_echo_device_session_number():
+    async with gateway() as (_, config, client, base, _):
+        async with connected(client, base, config) as device:
+            await device.send("listen_start", session=17)
+            assert await device.receive() == {"type": "state", "state": "listening", "session": 17}
+            await device.send("listen_stop")
+            assert await device.receive() == {"type": "state", "state": "thinking", "session": 17}
+            messages = []
+            async with asyncio.timeout(3):
+                while True:
+                    message = await device.receive()
+                    messages.append(message)
+                    if message.get("type") == "state" and message.get("state") == "idle":
+                        break
+            assert messages == [
+                {"type": "error", "code": "no_speech", "retryable": True, "session": 17},
+                {"type": "state", "state": "idle", "session": 17},
+            ]
+
+
+async def test_error_and_speaking_states_echo_device_session_number():
+    async def transcribe(pcm):
+        return "質問"
+
+    async def speak(text):
+        return b"\x01" * 640
+
+    async with gateway(stt=transcribe, tts=speak, bridge_name="mock", mock_mode="post_reply",
+                       mock_status="error", mock_text="返事") as (_, config, client, base, _):
+        async with connected(client, base, config) as device:
+            await device.send("listen_start", session=18)
+            assert await device.receive() == {"type": "state", "state": "listening", "session": 18}
+            for _ in range(15):
+                await device.ws.send_bytes(b"\0" * 640)
+            await device.send("listen_stop")
+            messages = []
+            async with asyncio.timeout(5):
+                while True:
+                    message = await device.receive()
+                    messages.append(message)
+                    if message == {"type": "state", "state": "idle", "session": 18}:
+                        break
+            states = [message for message in messages
+                      if isinstance(message, dict) and message.get("type") == "state"]
+            errors = [message for message in messages
+                      if isinstance(message, dict) and message.get("type") == "error"]
+            assert states == [
+                {"type": "state", "state": "thinking", "session": 18},
+                {"type": "state", "state": "error", "session": 18},
+                {"type": "state", "state": "speaking", "session": 18},
+                {"type": "state", "state": "idle", "session": 18},
+            ]
+            assert errors == [
+                {"type": "error", "code": "reply_error", "retryable": True, "session": 18},
+            ]
+
+
 async def test_cancel_waiter_propagates_its_own_cancellation():
     running = asyncio.Event()
     cleaning = asyncio.Event()

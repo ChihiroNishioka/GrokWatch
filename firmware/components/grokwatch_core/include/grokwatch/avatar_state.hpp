@@ -28,13 +28,15 @@ public:
     Effects touch(const GestureEvent& gesture, Millis now);
     Effects remote(State state, Millis now, std::optional<std::int64_t> session = {});
     std::int64_t sessionNumber() const { return sessionNumber_; }
-    Effects error(bool noSpeech, bool retryable, Millis now);
+    Effects error(bool noSpeech, bool retryable, Millis now,
+                  std::optional<std::int64_t> session = {});
     Effects recorded(Millis now, double rms);
     Effects ttsStart(Millis now);
     Effects drained(Millis now);
     Effects tick(Millis now);
 
 private:
+    bool acceptsSession(std::optional<std::int64_t> session) const;
     void enter(State state, Millis now);
     void clearPlayback();
     Effects stopListening(Millis now);

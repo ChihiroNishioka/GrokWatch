@@ -305,10 +305,10 @@ core の `AvatarStateMachine` は時刻と入力イベントを受け、次の�
 | `listen_start` | 端末 → gw | 任意の `session`（正の整数） | 収音開始。以後のバイナリを発話として受ける |
 | `listen_stop` | 端末 → gw | — | 収音終了。gw は即座に `state{thinking}` |
 | `cancel` | 端末 → gw | 開始時に付けた `session` | 一致する発話を取り消し、gw は `state{idle}` に同じ番号を付けて返す |
-| `state` | gw → 端末 | `state`: `idle` / `listening` / `thinking` / `speaking` / `error` | 会話状態。端末は現在の番号と合わない `session` 付きの通知を捨てる |
+| `state` | gw → 端末 | `state`: `idle` / `listening` / `thinking` / `speaking` / `error`、`session`(正の整数。旧端末では省略可) | 会話状態。端末は現在の番号と異なる通知を捨て、番号のない旧形式も Listening 中は捨てる |
 | `tts_start` | gw → 端末 | `sample_rate`(int=16000) | 以後のバイナリは再生音 |
 | `tts_end` | gw → 端末 | — | 再生音の終わり |
-| `error` | 双方向 | `code`(str)、`retryable`(bool) | 秘密を含まない診断コード |
+| `error` | 双方向 | `code`(str)、`retryable`(bool)。gw → 端末の発話中は `session`(正の整数。旧端末では省略可) | 秘密を含まない診断コード。端末は現在の番号と異なる通知を捨て、番号のない旧形式も Listening 中は捨てる |
 | `ping` / `pong` | 双方向 | `t`(int、送信側のミリ秒) | `pong` は受けた `t` をそのまま返す |
 
 ### 6.2 エラーコード
@@ -363,15 +363,16 @@ listen_stop            ──▶
 
 HTTP の形式を検証してから、[webhook ブリッジ仕様 §3](BRIDGE_WEBHOOK.md) の順序で返信を検証する。
 
-1. body が 8,192 バイトを超える → 413
-2. `X-GrokWatch-Request-Id`・`X-GrokWatch-Timestamp`・`X-GrokWatch-Signature` の欠落・形式不正（UUIDv4、整数の UNIX 秒、`sha256=` と 64 桁の 16 進数）、`Content-Type` が `application/json` でない → 422
-3. `request_id` が記録にない、または終端状態の保持期間が過ぎている → 404
-4. `cancelled`・`expired`、または現在時刻が `expires_at` 以上 → 410。期限に達した `pending` は `expired` にする
-5. タイムスタンプが ±120 秒の外 → 401
-6. 署名（`HMAC-SHA256(reply_token, timestamp + "." + raw_body)`）を定数時間比較。不一致 → 401
-7. `answered` の場合: raw body の SHA-256 が受理済みと同じ → 200 `{"status":"duplicate"}`、違う → 409
-8. UTF-8 の JSON オブジェクトとして読めない、必須フィールド `v`・`request_id`・`status`・`text` に欠落や型違いがある、`v` が整数の 1 以外、body の `request_id` がヘッダと違う、`status` が `ok/declined/error` 以外、`text` が 400 文字超、任意の `emotion`・`end_conversation` の型がそれぞれ文字列・真偽値と違う → 422
-9. 受理: `answered` にして 200 `{"status":"accepted"}`。返事を会話に渡す
+1. `Content-Encoding` が `identity` 以外 → 415。自動展開せずに拒否する
+2. 受信した body が 8,192 バイトを超える → 413
+3. `X-GrokWatch-Request-Id`・`X-GrokWatch-Timestamp`・`X-GrokWatch-Signature` の欠落・形式不正（UUIDv4、整数の UNIX 秒、`sha256=` と 64 桁の 16 進数）、`Content-Type` が `application/json` でない → 422
+4. `request_id` が記録にない、または終端状態の保持期間が過ぎている → 404
+5. `cancelled`・`expired`、または現在時刻が `expires_at` 以上 → 410。期限に達した `pending` は `expired` にする
+6. タイムスタンプが ±120 秒の外 → 401
+7. 署名（`HMAC-SHA256(reply_token, timestamp + "." + received_body)`）を定数時間比較。不一致 → 401
+8. `answered` の場合: 受信した body の SHA-256 が受理済みと同じ → 200 `{"status":"duplicate"}`、違う → 409
+9. UTF-8 の JSON オブジェクトとして読めない、必須フィールド `v`・`request_id`・`status`・`text` に欠落や型違いがある、`v` が整数の 1 以外、body の `request_id` がヘッダと違う、`status` が `ok/declined/error` 以外、`text` が 400 文字超、任意の `emotion`・`end_conversation` の型がそれぞれ文字列・真偽値と違う → 422
+10. 受理: `answered` にして 200 `{"status":"accepted"}`。返事を会話に渡す
 
 - `pending` からの遷移は発話ごとに一度だけ確定する。`answered` の `reply_token` は受理済み返信の署名検証にだけ使い、期限に達したら破棄する。同じ body の判定は JSON の再直列化をせず、受信したバイト列で行う。
 - `emotion` の省略時は `neutral`。未知の値も `neutral` として扱い、ログには正規化後の値を残す。

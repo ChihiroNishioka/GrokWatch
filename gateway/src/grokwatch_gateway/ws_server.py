@@ -6,7 +6,7 @@ import hmac
 from aiohttp import WSCloseCode, WSMsgType, web
 from grokwatch_bridge.contract import Session
 
-from .conversation import Conversation
+from .conversation import Conversation, ConversationTurn
 from .protocol import FRAME_BYTES, MAX_FRAMES, MAX_TEXT_BYTES, decode
 
 
@@ -34,12 +34,11 @@ class DeviceSession:
         self.conversation = Conversation(ws, stt=server.stt, tts=server.tts, bridge=server.bridge,
                                          canned=server.canned, log=server.log,
                                          sleep=server.sleep, clock=server.clock, pace_clock=server.pace_clock)
-        self.session = None
+        self.turn = None
         self.capture = None
         self.task = None
         self.cleanup = None
         self.retired = False
-        self.number = None
         self.bad_frame = False
 
     @staticmethod
@@ -60,20 +59,20 @@ class DeviceSession:
         await self.cancel()
         if self.retired:
             return
-        self.session = self.server.next_session()
-        self.number = number
+        self.turn = ConversationTurn(number, self.server.next_session())
         self.capture = bytearray()
         self.bad_frame = False
-        await self.conversation.state("listening")
+        await self.conversation.state("listening", self.turn)
 
     async def stop(self):
         if self.capture is None:
             return
         pcm = bytes(self.capture)
         self.capture = None
-        await self.conversation.state("thinking")
+        turn = self.turn
+        await self.conversation.state("thinking", turn)
         if not self.retired:
-            self.task = asyncio.create_task(self.conversation.run(pcm, self.session))
+            self.task = asyncio.create_task(self.conversation.run(pcm, turn))
 
     async def handle(self, frame):
         if frame.type == WSMsgType.BINARY:
@@ -82,7 +81,7 @@ class DeviceSession:
             if len(frame.data) != FRAME_BYTES:
                 if not self.bad_frame:
                     self.bad_frame = True
-                    await self.conversation.error("bad_frame", retryable=False)
+                    await self.conversation.error("bad_frame", retryable=False, turn=self.turn)
                 return
             self.capture.extend(frame.data)
             if len(self.capture) == FRAME_BYTES * MAX_FRAMES:
@@ -95,7 +94,7 @@ class DeviceSession:
         if frame.type == WSMsgType.PONG:
             return
         if (data := decode(frame)) is None:
-            await self.conversation.error("bad_message", retryable=False)
+            await self.conversation.error("bad_message", retryable=False, turn=self.turn)
             return
         match data["type"]:
             case "listen_start":
@@ -103,11 +102,11 @@ class DeviceSession:
             case "listen_stop":
                 await self.stop()
             case "cancel":
-                if data.get("session") != self.number:
+                if self.turn is None or data.get("session") != self.turn.device_number:
                     return
                 await self.cancel()
                 if not self.retired:
-                    await self.conversation.state("idle", session=self.number)
+                    await self.conversation.state("idle", self.turn)
             case "ping":
                 await self.ws.send_json({"type": "pong", "t": data["t"]})
             case "pong" | "error":

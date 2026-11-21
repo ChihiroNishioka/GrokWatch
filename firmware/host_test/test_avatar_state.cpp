@@ -231,3 +231,45 @@ TEST(delayed_cancel_ack_does_not_stop_new_capture) {
     CHECK_EQ(avatar.state(), State::Listening);
     CHECK(avatar.remote(State::Idle, 3110, avatar.sessionNumber()).stopCapture);
 }
+
+TEST(delayed_sessionless_state_does_not_stop_new_capture) {
+    AvatarStateMachine avatar;
+    avatar.hello(0);
+    avatar.longPress(1);
+    const auto oldSession = avatar.sessionNumber();
+    avatar.longPress(1000);
+    avatar.remote(State::Idle, 1010, oldSession);
+    avatar.longPress(1020);
+
+    CHECK_EQ(avatar.state(), State::Listening);
+    CHECK(!avatar.remote(State::Idle, 1030).stopCapture);
+    CHECK_EQ(avatar.state(), State::Listening);
+}
+
+TEST(delayed_sessionless_error_does_not_stop_new_capture) {
+    AvatarStateMachine avatar;
+    avatar.hello(0);
+    avatar.longPress(1);
+    const auto oldSession = avatar.sessionNumber();
+    avatar.longPress(1000);
+    avatar.remote(State::Idle, 1010, oldSession);
+    avatar.longPress(1020);
+
+    CHECK_EQ(avatar.state(), State::Listening);
+    avatar.error(true, true, 1030);
+    CHECK_EQ(avatar.state(), State::Listening);
+}
+
+TEST(delayed_numbered_error_does_not_stop_new_capture) {
+    AvatarStateMachine avatar;
+    avatar.hello(0);
+    avatar.longPress(1);
+    const auto oldSession = avatar.sessionNumber();
+    avatar.longPress(1000);
+    avatar.remote(State::Idle, 1010, oldSession);
+    avatar.longPress(1020);
+
+    CHECK_EQ(avatar.state(), State::Listening);
+    avatar.error(true, true, 1030, oldSession);
+    CHECK_EQ(avatar.state(), State::Listening);
+}

@@ -9,7 +9,12 @@ namespace gwapp {
 
 void touchTask(void* context) {
     auto& app = *static_cast<App*>(context);
-    const auto config = M5.Display.touch()->config();
+    auto* touch = M5.Display.touch();
+    if (!touch) {
+        ESP_LOGW("grokwatch", "touch_unavailable");
+        return;
+    }
+    const auto config = touch->config();
     const int x = (M5.Display.width() - grokwatch::screenSize) / 2;
     const int y = (M5.Display.height() - grokwatch::screenSize) / 2;
 

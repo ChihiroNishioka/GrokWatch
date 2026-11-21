@@ -19,3 +19,4 @@
 | 21:37 | NVS を廃止し、WS・webhook・ログ・タッチ・再生・仕様の指摘を修正 | `ctest` 通常・ASan/UBSan、`uv run pytest`（3.11 / 3.13）、`idf.py build`、`bash scripts/check_pii.sh` | ctest は各 60 件、pytest は各 132 件通過。生成アプリは 1,187,056 バイト。[テスト報告](TEST_REPORT.md) | 再レビューと Phase 5 の端末確認 |
 | 21:43 | CI の firmware-build（クリーン環境）の失敗を修正 | `idf.py set-target esp32s3 && idf.py build`（追跡ファイルだけを展開した新しい場所） | 成功。`94b8808` の CI は全ジョブ成功 | 再レビューの結果を確認 |
 | 21:45 | PR #1 レビュー 2 回目 | — | 81 点（high 0、mid 5）と 86 点（high 0）。合格 | 残った mid の修正。Phase 5 は書き込みの承認後 |
+| 22:03 | PR #1 2 回目レビューの残件を修正。作業主体は開発エージェント | 通常・ASan/UBSan ctest、pytest（3.13 / 3.11）、クリーンソース `idf.py set-target esp32s3`・`idf.py build`、`bash scripts/check_pii.sh` | ctest は各 65 件、pytest は各 137 件通過。アプリは 1,188,224 バイト。[テスト報告](TEST_REPORT.md) | Phase 5 の端末確認 |

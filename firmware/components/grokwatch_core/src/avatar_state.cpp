@@ -17,6 +17,11 @@ void AvatarStateMachine::enter(State state, Millis now) {
     entered_ = now;
 }
 
+bool AvatarStateMachine::acceptsSession(std::optional<std::int64_t> session) const {
+    if (session) return *session == sessionNumber_;
+    return state_ != State::Listening;
+}
+
 void AvatarStateMachine::clearPlayback() {
     playback_ = false;
     speakingAnnounced_ = false;
@@ -87,7 +92,7 @@ Effects AvatarStateMachine::touch(const GestureEvent& gesture, Millis now) {
 }
 
 Effects AvatarStateMachine::remote(State state, Millis now, std::optional<std::int64_t> session) {
-    if (session && *session != sessionNumber_) return {};
+    if (!acceptsSession(session)) return {};
     if (state_ == State::Disconnected || state == State::Disconnected) return {};
     if (cancelled_ && state != State::Idle) return {};
     if (state == State::Error) return enterError(now);
@@ -116,8 +121,9 @@ Effects AvatarStateMachine::enterError(Millis now) {
     return effects;
 }
 
-Effects AvatarStateMachine::error(bool noSpeech, bool retryable, Millis now) {
-    if (state_ == State::Disconnected || cancelled_) return {};
+Effects AvatarStateMachine::error(bool noSpeech, bool retryable, Millis now,
+                                 std::optional<std::int64_t> session) {
+    if (!acceptsSession(session) || state_ == State::Disconnected || cancelled_) return {};
     if (noSpeech) {
         bool drop = playback_;
         clearPlayback();

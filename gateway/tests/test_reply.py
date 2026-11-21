@@ -1,4 +1,5 @@
 import asyncio
+import gzip
 import hmac
 import secrets
 from uuid import uuid4
@@ -98,6 +99,22 @@ async def test_body_limit(inbox):
     async with client.post(base + "/v1/reply", data=body + b" ") as response:
         assert response.status == 413
     assert (await post(client, base, request_id, key, body, now[0]))[0] == 200
+
+
+async def test_content_encoding_is_rejected_without_changing_the_pending_reply(inbox):
+    now, registry, client, base, key, register = inbox
+    request_id, answer = register()
+    body = reply_body(request_id)
+    compressed = gzip.compress(body)
+    headers = reply_headers(request_id, key, compressed, now[0])
+    headers["Content-Encoding"] = "gzip"
+    async with client.post(base + "/v1/reply", data=compressed, headers=headers) as response:
+        assert response.status == 415
+    assert registry.state(request_id) == "pending"
+    assert await post(client, base, request_id, key, body, now[0]) == (
+        200, {"status": "accepted"},
+    )
+    assert (await answer).text == "返事"
 
 
 @pytest.mark.parametrize("fields", [

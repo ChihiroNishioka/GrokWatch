@@ -6,7 +6,7 @@ GestureEvent GestureDetector::sample(Millis now, std::optional<unsigned> contact
                                      Point raw, Point screen) {
     if (contacts == 0) return update(now, false, {});
     if (contacts == 1 && (raw.x != 0 || raw.y != 0)) return update(now, true, screen);
-    if (contact_ == Contact::Dragging) return {Gesture::DragMove, lastPoint_};
+    if (contact_ == Contact::Dragging) return {Gesture::DragMove, {}};
     return {};
 }
 

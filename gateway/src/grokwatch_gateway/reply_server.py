@@ -54,6 +54,14 @@ def reply_handler(registry, clock, log):
                 return web.json_response({"status": outcome})
             return web.Response(status=http_status)
 
+        encodings = [
+            encoding.strip().lower()
+            for value in request.headers.getall("Content-Encoding", ())
+            for encoding in value.split(",")
+        ]
+        if any(encoding != "identity" for encoding in encodings):
+            return response(415)
+
         raw = bytearray()
         async for part in request.content.iter_chunked(_BODY_LIMIT + 1):
             raw.extend(part)

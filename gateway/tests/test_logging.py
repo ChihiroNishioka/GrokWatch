@@ -1,5 +1,7 @@
+import asyncio
 import json
 import secrets
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -52,3 +54,25 @@ async def test_log_text_toggle(monkeypatch, capsys, switch):
         assert (reply in result) == (switch == "1")
         if switch == "1":
             assert "***" in result
+
+
+async def test_http_parser_errors_do_not_log_peer_or_request_data(caplog):
+    async with gateway() as (_, _, _, base, _):
+        caplog.clear()
+        secret = secrets.token_urlsafe(18)
+        address = urlsplit(base)
+        reader, writer = await asyncio.open_connection(address.hostname, address.port)
+        writer.write(
+            b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nBad Header: "
+            + secret.encode()
+            + b"\r\n\r\n"
+        )
+        await writer.drain()
+        await asyncio.wait_for(reader.read(), 1)
+        writer.close()
+        await writer.wait_closed()
+
+        output = caplog.text
+        assert "127.0.0.1" not in output and secret not in output, (
+            "aiohttp logger exposed a peer or synthetic secret"
+        )
