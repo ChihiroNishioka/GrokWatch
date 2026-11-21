@@ -32,15 +32,54 @@ struct WifiEvents {
     std::atomic<unsigned> status{0};
 };
 
-void wifiEvent(void* context, esp_event_base_t base, int32_t id, void*) {
+void wifiEvent(void* context, esp_event_base_t base, int32_t id, void* data) {
     auto& status = static_cast<WifiEvents*>(context)->status;
     const auto old = status.load();
+    // Diagnostic status only: never log SSID, password, addresses or tokens.
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        ESP_LOGI(tag, "diag wifi: associated");
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && data) {
+        ESP_LOGI(tag, "diag wifi: disconnected reason=%d",
+                 static_cast<const wifi_event_sta_disconnected_t*>(data)->reason);
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        ESP_LOGI(tag, "diag wifi: got ip");
+    }
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         status.store(old | 1u);
     } else if ((base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) ||
                (base == IP_EVENT && id == IP_EVENT_STA_LOST_IP)) {
         status.store((old & ~1u) + 2u);
     }
+}
+
+// Diagnostic scan: reports only counts, channel, auth mode and signal of the target.
+void diagScan(const Config& config) {
+    if (esp_wifi_scan_start(nullptr, true) != ESP_OK) {
+        ESP_LOGI(tag, "diag scan: failed");
+        return;
+    }
+    uint16_t count = 20;
+    std::array<wifi_ap_record_t, 20> aps{};
+    if (esp_wifi_scan_get_ap_records(&count, aps.data()) != ESP_OK) count = 0;
+    int nonAscii = 0;
+    bool found = false;
+    for (uint16_t i = 0; i < count; ++i) {
+        const auto* ssid = reinterpret_cast<const char*>(aps[i].ssid);
+        const auto len = strnlen(ssid, sizeof(aps[i].ssid));
+        bool wide = false;
+        for (std::size_t k = 0; k < len; ++k) wide |= static_cast<unsigned char>(ssid[k]) > 0x7f;
+        if (wide) {
+            ++nonAscii;
+            ESP_LOGI(tag, "diag scan: non-ascii ap bytes=%u ch=%u", static_cast<unsigned>(len), aps[i].primary);
+        }
+        if (len == config.ssid.size() && std::memcmp(ssid, config.ssid.data(), len) == 0) {
+            found = true;
+            ESP_LOGI(tag, "diag scan: target found ch=%u auth=%d rssi=%d", aps[i].primary,
+                     static_cast<int>(aps[i].authmode), aps[i].rssi);
+        }
+    }
+    ESP_LOGI(tag, "diag scan: aps=%u non_ascii=%d target_found=%d target_bytes=%u", count, nonAscii,
+             found ? 1 : 0, static_cast<unsigned>(config.ssid.size()));
 }
 
 bool startWifi(const Config& config, WifiEvents& events) {
@@ -57,10 +96,12 @@ bool startWifi(const Config& config, WifiEvents& events) {
            esp_netif_create_default_wifi_sta() != nullptr &&
            esp_wifi_init(&init) == ESP_OK &&
            esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, wifiEvent, &events) == ESP_OK &&
+           esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, wifiEvent, &events) == ESP_OK &&
            esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, wifiEvent, &events) == ESP_OK &&
            esp_wifi_set_storage(WIFI_STORAGE_RAM) == ESP_OK &&
            esp_wifi_set_mode(WIFI_MODE_STA) == ESP_OK &&
-           esp_wifi_set_config(WIFI_IF_STA, &sta) == ESP_OK && esp_wifi_start() == ESP_OK;
+           esp_wifi_set_config(WIFI_IF_STA, &sta) == ESP_OK && esp_wifi_start() == ESP_OK &&
+           (diagScan(config), true);
 }
 
 class Socket {
@@ -76,6 +117,7 @@ public:
         ws.network_timeout_ms = 2000;
         ws.task_stack = 6144;
         ws.buffer_size = 1024;
+        ESP_LOGI(tag, "diag ws: connecting");
         handle_ = esp_websocket_client_init(&ws);
         return handle_ && esp_websocket_register_events(handle_, WEBSOCKET_EVENT_ANY, onEvent, this) == ESP_OK &&
                esp_websocket_client_start(handle_) == ESP_OK;
@@ -125,8 +167,15 @@ private:
     static void onEvent(void* context, esp_event_base_t, int32_t id, void* data) {
         auto& socket = *static_cast<Socket*>(context);
         switch (id) {
-            case WEBSOCKET_EVENT_CONNECTED: socket.post({SocketEventKind::Open}); break;
+            case WEBSOCKET_EVENT_CONNECTED:
+                ESP_LOGI(tag, "diag ws: connected");
+                socket.post({SocketEventKind::Open});
+                break;
+            case WEBSOCKET_EVENT_ERROR: ESP_LOGI(tag, "diag ws: error"); break;
             case WEBSOCKET_EVENT_DISCONNECTED:
+                ESP_LOGI(tag, "diag ws: disconnected");
+                socket.post({SocketEventKind::Closed});
+                break;
             case WEBSOCKET_EVENT_CLOSED:
             case WEBSOCKET_EVENT_FINISH: socket.post({SocketEventKind::Closed}); break;
             case WEBSOCKET_EVENT_DATA:
