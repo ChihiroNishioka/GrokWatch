@@ -57,6 +57,8 @@ jobs:
           persist-credentials: false
       - name: ESP32-S3 ビルドとパーティション検査
         run: |
+          # コンテナ内ではチェックアウトの所有者が異なるため、この作業ツリーだけを信頼する
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           source "$IDF_PATH/export.sh"
           git ls-files --error-unmatch firmware/dependencies.lock
           git ls-files --error-unmatch uv.lock
