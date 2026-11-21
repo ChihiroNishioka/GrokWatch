@@ -59,7 +59,8 @@ void diagScan(const Config& config) {
         return;
     }
     uint16_t count = 20;
-    std::array<wifi_ap_record_t, 20> aps{};
+    // diagScan is called only by netTask, so this buffer has one writer.
+    static std::array<wifi_ap_record_t, 20> aps{};
     if (esp_wifi_scan_get_ap_records(&count, aps.data()) != ESP_OK) count = 0;
     int nonAscii = 0;
     bool found = false;
@@ -260,6 +261,10 @@ public:
     void run() {
         const bool configured = config_.ready();
         const bool wifiStarted = configured && startWifi(config_, wifiEvents_);
+        if (wifiStarted) {
+            ESP_LOGI(tag, "diag stack net free=%u",
+                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        }
         if (!configured) ESP_LOGI(tag, "設定なし");
         else if (!wifiStarted) ESP_LOGE(tag, "network_init_failed");
 
@@ -316,7 +321,14 @@ private:
             std::unique_ptr<char[]> data(event.data);
             const auto now = nowMs();
             switch (event.kind) {
-                case SocketEventKind::Open: linkAction(link_.opened(now), now); break;
+                case SocketEventKind::Open:
+                    linkAction(link_.opened(now), now);
+                    if (!reportedWsStackFree_) {
+                        ESP_LOGI(tag, "diag stack net free=%u",
+                                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+                        reportedWsStackFree_ = true;
+                    }
+                    break;
                 case SocketEventKind::Closed: linkAction(link_.failed(now, rng_.unit()), now); break;
                 case SocketEventKind::BadText:
                     link_.received(now);
@@ -502,11 +514,12 @@ private:
     AvatarStateMachine avatar_;
     std::uint32_t reportedDroppedAudio_ = 0;
     bool ioFailed_ = false;
+    bool reportedWsStackFree_ = false;
 };
 }
 
 void netTask(void* context) {
-    Network network(*static_cast<App*>(context), readConfig());
+    static Network network(*static_cast<App*>(context), readConfig());
     network.run();
 }
 }

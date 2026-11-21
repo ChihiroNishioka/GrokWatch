@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: ESP32-S3 ビルドとパーティション検査
+      - name: ESP32-S3 ビルド、パーティション、スタック検査
         run: |
           # コンテナ内ではチェックアウトの所有者が異なるため、この作業ツリーだけを信頼する
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -70,3 +70,4 @@ jobs:
           )
           git diff --exit-code HEAD -- firmware/dependencies.lock
           python scripts/check_firmware_build.py
+          python scripts/check_stack_frames.py

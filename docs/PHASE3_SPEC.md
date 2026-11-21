@@ -670,6 +670,26 @@ HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に�
 | L10 | ファームは NVS を使わない（読み取り・書き込みともなし）。`firmware/main` と core に `nvs_*` の呼び出し、および `esp_partition_*`、`spi_flash_*`、`esp_flash_*` の消去・書き込み呼び出しがない | `tests/repo/test_firmware_config.py::test_no_nvs_or_flash_mutation_calls` |
 | L11 | ファームのソースの `ESP_LOG*` 呼び出しの引数に `password`・`token`・`ssid` を含む識別子がない | `tests/repo/test_firmware_config.py::test_no_secret_logging` |
 | L12 | 形式許可リストで画像・動画と対象外の形式の追跡を拒む。CSV・lock・defaults は `firmware/partitions.csv`、`uv.lock`、`firmware/dependencies.lock`、`firmware/sdkconfig.defaults` のみ許可する | `tests/repo/test_assets.py::test_asset_allowlist` |
+| L13 | `netTask`、`buttonTask`、`renderTask`、`audioTask` の主な経路が `app_main.cpp` のタスク枠内に収まり、通常関数は 2,048 B 以下、`audioTask` は 3,072 B 以下 | `scripts/check_stack_frames.py` と `tests/repo/test_stack_frames.py` |
+
+### タスクのスタック予算
+
+`scripts/check_stack_frames.py` は ELF を `xtensa-esp32s3-elf-objdump -dC` で読み、`entry a1, N` の N を関数の枠として扱う。`gwapp::` と `grokwatch::` の各関数には 2,048 B の上限を置く。`audioTask` は `Capture` と `Playback` の状態をループ間で保つため、3,072 B を例外上限にする。タスク枠は `app_main.cpp` の `xTaskCreate` から読む。
+
+net の余裕は 3,072 B で、診断ログの `_vfprintf_r` と Wi-Fi・FreeRTOS の呼び出し分を見込む。buttons、render、audio の余裕はそれぞれ 2,048 B、2,048 B、3,072 B である。表の測定枠は検査対象の C++ 関数枠の合計で、余裕を足した値を各タスクの枠と比べる。
+
+検査器はコードに列挙した主要経路を合計する。間接呼び出しや IDF・ライブラリ内部の全経路は解析しない。余裕はそれらの枠を個別に測った値ではない。実機の実使用量は `diag stack net free=%u` の high-water 値で確認する。
+
+| タスク | 最大の列挙経路 | 関数枠 | 余裕 | 検査値 | `xTaskCreate` 枠 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| net | JSON エスケープ解析 | 2,000 B | 3,072 B | 5,072 B | 12,288 B |
+| buttons | 音量ボタン処理 | 144 B | 2,048 B | 2,192 B | 3,072 B |
+| render | 表情計算 | 960 B | 2,048 B | 3,008 B | 6,144 B |
+| audio | 再生バッファ排出待ち | 2,880 B | 3,072 B | 5,952 B | 6,144 B |
+
+overflow の原因は `Network` を `netTask` のローカル変数にしていたことだった。中の `Socket` は 4,096 B のテキストバッファと 768 B のイベントキューを持ち、旧 ELF の `netTask` 枠は 7,792 B だった。さらに `diagScan` の AP 記録配列は 1,920 B を使った。診断走査経路は余裕を含めて 13,232 B となり、タスク枠の 12,288 B を超えた。
+
+修正後は `Network` と AP 記録配列を静的領域へ移した。`netTask` は 144 B、`diagScan` は 80 B になり、診断走査経路は 3,744 B になった。Wi-Fi 診断走査のあとと WebSocket 初回接続時に `diag stack net free=%u` を記録する。ESP-IDF の `uxTaskGetStackHighWaterMark` は残量をバイトで返す。実機での残量は未確認である。
 
 素材や顔データの出所・権利、形式不明の Agent ID、個人情報は公開前の差分目視でも確認する（[AGENTS.md](../AGENTS.md)、[LESSONS.md](../LESSONS.md)）。
 
