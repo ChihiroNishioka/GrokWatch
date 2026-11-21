@@ -1,0 +1,73 @@
+title = "GrokWatch の秘密・個人情報検査"
+
+[[rules]]
+id = "grokwatch-private-ipv4"
+description = "プライベートおよび共有 IPv4 アドレス"
+regex = '''(?:^|[^0-9.])((?:10\.(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.){2}|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.|(?:192\.168|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.)(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2}))(?:$|[^0-9.]|\.(?:$|[^0-9]))'''
+secretGroup = 1
+
+[[rules]]
+id = "grokwatch-home-path"
+description = "Linux と macOS のホームパスおよびワークスペースパス"
+regex = '''(?:/(?:Users|home)/[^/[:cntrl:]<>"'`]+/|/workspace/)'''
+
+[[rules]]
+id = "grokwatch-agent-uuid"
+description = "Agent ID になり得る UUID"
+regex = '''(?i)\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b'''
+
+[[rules]]
+id = "grokwatch-jp-phone"
+description = "日本の電話番号"
+regex = '''(?:^|[^[:alnum:]_+])((?:0(?:120|570)[- ]?[0-9]{3}[- ]?[0-9]{3}|0[5789]0[- ]?[0-9]{4}[- ]?[0-9]{4}|0[1-9][0-9]{0,3}[- ][0-9]{1,4}[- ][0-9]{4}|0[1-9][0-9]{8}|\+81[- ]?(?:\(0\)[- ]?)?[1-9][0-9]{0,3}[- ]?[0-9]{1,4}[- ]?[0-9]{4}))(?:$|[^[:alnum:]_])'''
+secretGroup = 1
+
+[[rules]]
+id = "grokwatch-email"
+description = "メールアドレス"
+regex = '''(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}'''
+
+[[rules.allowlists]]
+description = "通知専用アドレスと例示用ドメイン"
+regexTarget = "secret"
+regexes = ['''(?i)^noreply@''', '''(?i)@example\.(?:com|org)$''']
+
+[[rules]]
+id = "grokwatch-mac-address"
+description = "MAC アドレス"
+regex = '''(?i)(?:^|[^[:alnum:]_])(?:[a-f0-9]{2}(?::[a-f0-9]{2}){5}|[a-f0-9]{2}(?:-[a-f0-9]{2}){5}|[a-f0-9]{4}(?:\.[a-f0-9]{4}){2})(?:$|[^[:alnum:]_])'''
+
+[[rules]]
+id = "grokwatch-private-hostname"
+description = "Tailscale と mDNS のホスト名"
+regex = '''(?i)(?:^|[^a-z0-9_.-])[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.(?:ts\.net|local)(?:$|[^a-z0-9_.-]|\.(?:$|[^a-z0-9_.-]))'''
+
+[[rules]]
+id = "grokwatch-webhook-url"
+description = "ルーチンの webhook URL"
+regex = '''(?i)api2\.cursor\.sh/automations/webhook/'''
+
+[[rules]]
+id = "grokwatch-usb-node"
+description = "USB モデムの実ノード名"
+regex = '''(?i)usbmodem[0-9]+'''
+
+[[rules]]
+id = "grokwatch-ipv6-ula"
+description = "IPv6 ULA のプレフィックス"
+regex = '''(?i)(?:^|[^0-9a-z_:])fd[0-9a-f]{2}:(?::|[0-9a-f])'''
+
+[[rules]]
+id = "grokwatch-file-format"
+description = "許可リストにないファイル形式"
+path = '''.+'''
+
+[[rules.allowlists]]
+paths = ['''(?i)\.(?:md|sh|ya?ml|toml)$''', '''^(?:LICENSE|\.gitignore|config/\.env\.example)$''']
+
+[[allowlists]]
+description = "この設定に含まれる検出式の定義行"
+condition = "AND"
+paths = ['''^\.gitleaks\.toml$''']
+regexTarget = "line"
+regexes = ['''^regex = \x27{3}.+\x27{3}$''', '''^regexes = \[\x27{3}.+\x27{3}\]$''']
