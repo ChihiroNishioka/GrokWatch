@@ -24,7 +24,8 @@ extern "C" void app_main() {
         return;
     }
 
-    if (xTaskCreate(renderTask, "render", 6144, &app, 4, nullptr) != pdPASS ||
+    if (xTaskCreate(buttonTask, "buttons", 3072, &app, 5, nullptr) != pdPASS ||
+        xTaskCreate(renderTask, "render", 6144, &app, 4, nullptr) != pdPASS ||
         xTaskCreate(touchTask, "touch", 4096, &app, 5, nullptr) != pdPASS ||
         xTaskCreate(audioTask, "audio", 6144, &app, 6, nullptr) != pdPASS ||
         xTaskCreate(netTask, "net", 12288, &app, 5, nullptr) != pdPASS) {

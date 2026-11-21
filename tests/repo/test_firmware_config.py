@@ -49,6 +49,37 @@ def test_no_secret_logging(firmware_sources):
             assert not re.search(r"\b\w*(?:password|token|ssid)\w*\b", call, re.IGNORECASE), path
 
 
+def test_no_address_logging(firmware_sources):
+    prohibited = re.compile(
+        r"\b(?:config|config_|IP2STR|IPSTR|ip_info|esp_ip4addr_ntoa|MACSTR|bssid|ssid|"
+        r"password|token|host|port|target_bytes)\b|\.(?:host|port)\b",
+        re.IGNORECASE,
+    )
+    for path, source in firmware_sources.items():
+        for call in re.findall(r"\bESP_LOG[A-Z_]+\s*\((.*?);", source, re.DOTALL):
+            assert not prohibited.search(call), path
+
+
+def test_log_formats_allowlisted(repo_root):
+    net = (repo_root / "firmware/main/net_task.cpp").read_text()
+    buttons = (repo_root / "firmware/main/button_task.cpp").read_text()
+    formats = set(re.findall(r'ESP_LOG[A-Z_]+\([^\n]*?"((?:diag|volume)[^"\n]*)"', net + buttons))
+    assert formats == {
+        "diag wifi: associated",
+        "diag wifi: disconnected reason=%d",
+        "diag wifi: got ip",
+        "diag scan: failed",
+        "diag scan: non-ascii ap ch=%u",
+        "diag scan: target found ch=%u auth=%d rssi=%d",
+        "diag scan: aps=%u non_ascii=%d target_found=%d",
+        "diag ws: connecting",
+        "diag ws: connected",
+        "diag ws: error",
+        "diag ws: disconnected",
+        "volume value=%u",
+    }
+
+
 async def test_documented_reply_sender_rejects_redirect(repo_root):
     namespace = {}
     document = (repo_root / "docs/BRIDGE_WEBHOOK.md").read_text()

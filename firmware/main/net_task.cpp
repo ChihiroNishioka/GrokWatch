@@ -70,7 +70,7 @@ void diagScan(const Config& config) {
         for (std::size_t k = 0; k < len; ++k) wide |= static_cast<unsigned char>(ssid[k]) > 0x7f;
         if (wide) {
             ++nonAscii;
-            ESP_LOGI(tag, "diag scan: non-ascii ap bytes=%u ch=%u", static_cast<unsigned>(len), aps[i].primary);
+            ESP_LOGI(tag, "diag scan: non-ascii ap ch=%u", aps[i].primary);
         }
         if (len == config.ssid.size() && std::memcmp(ssid, config.ssid.data(), len) == 0) {
             found = true;
@@ -78,8 +78,7 @@ void diagScan(const Config& config) {
                      static_cast<int>(aps[i].authmode), aps[i].rssi);
         }
     }
-    ESP_LOGI(tag, "diag scan: aps=%u non_ascii=%d target_found=%d target_bytes=%u", count, nonAscii,
-             found ? 1 : 0, static_cast<unsigned>(config.ssid.size()));
+    ESP_LOGI(tag, "diag scan: aps=%u non_ascii=%d target_found=%d", count, nonAscii, found ? 1 : 0);
 }
 
 bool startWifi(const Config& config, WifiEvents& events) {
