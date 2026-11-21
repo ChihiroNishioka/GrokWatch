@@ -1,0 +1,13 @@
+[tool.uv.workspace]
+members = ["gateway", "bridge"]
+
+[tool.uv.sources]
+grokwatch-bridge = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "PyYAML>=6,<7"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["tests/fixtures", "tests/e2e", "gateway/src", "bridge/src"]

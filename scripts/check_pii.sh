@@ -69,7 +69,7 @@ scan_files() {
             LICENSE|.gitignore|config/.env.example) ;;
             *)
                 case $(printf '%s' "$path" | tr '[:upper:]' '[:lower:]') in
-                    *.md|*.sh|*.yml|*.yaml|*.toml) ;;
+                    *.md|*.sh|*.yml|*.yaml|*.toml|*.py|*.cpp|*.hpp|*.h|*.c|*/cmakelists.txt|cmakelists.txt|*.cmake|*.csv|*.lock|*.projbuild|*.defaults|*.json) ;;
                     *)
                         printf '許可リストにないファイル形式です。 %s\n' "$label" >&2
                         failed=1

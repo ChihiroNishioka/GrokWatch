@@ -14,3 +14,4 @@
 | 19:54 | groki-bot の StopWatch 向け上流ビルドを再現 | `make build BOARD=stopwatch`（上流の再現コマンド） | M5GFX 0.3.0 ではヘッダー不在で失敗。0.2.30 に固定すると成功。詳細は [調査](RESEARCH.md) に記録 | GrokWatch のビルドは Phase 4 で検証 |
 | 19:55 | 初回コミット候補のレビュー | — | Codex 72 点、Claude 76 点。Codex の high 2 件は履歴検査と公開文書を修正 | 修正後の候補を再検査 |
 | 承認後 | 初回公開と Phase 3 | — | オーナー確認待ち | オーナー確認後に GitHub リポジトリを作成して push。Phase 3 は採用方針の承認後に開始 |
+| 21:10 | Phase 3〜4 の gateway・bridge 修正と CI 統合。作業主体はエンジニア bot / Codex | `ctest` 通常・ASan/UBSan、`uv run --locked pytest`（3.11 / 3.13）、`idf.py build`、秘密・PII 検査 | ctest は各 57 件、pytest は各 119 件通過。生成アプリは 1,195,744 バイト。[テスト報告](TEST_REPORT.md) | GitHub Actions の実行、Phase 5 の端末確認、Phase 6 の Mac mini と伝書鳩の確認 |

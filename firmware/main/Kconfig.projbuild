@@ -1,0 +1,24 @@
+menu "GrokWatch"
+
+config GROKWATCH_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+
+config GROKWATCH_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+
+config GROKWATCH_GATEWAY_HOST
+    string "Gateway host"
+    default ""
+
+config GROKWATCH_GATEWAY_PORT
+    int "Gateway port"
+    range 1 65535
+    default 8765
+
+config GROKWATCH_DEVICE_TOKEN
+    string "Device token"
+    default ""
+
+endmenu
