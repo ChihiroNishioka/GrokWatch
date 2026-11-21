@@ -33,6 +33,12 @@ async def test_valid_duplicate_and_conflicting_reply(inbox):
     assert (await post(client, base, request_id, key, body + b" ", now[0]))[0] == 409
 
 
+async def test_get_reply_path_returns_method_not_allowed(inbox):
+    _, _, client, base, _, _ = inbox
+    async with client.get(base + "/v1/reply") as response:
+        assert response.status == 405
+
+
 @pytest.mark.parametrize("offset, expected", [(-121, 401), (121, 401), (-120, 200), (120, 200)])
 async def test_timestamp_window(inbox, offset, expected):
     now, _, client, base, key, register = inbox
@@ -140,6 +146,74 @@ async def test_malformed_fields(inbox, fields):
     import json
     body = json.dumps(json.loads(reply_body(request_id)) | fields).encode()
     assert (await post(client, base, request_id, key, body, now[0]))[0] == 422
+
+
+async def test_signed_reply_is_cleaned_before_tts(inbox):
+    now, _, client, base, key, register = inbox
+    request_id, answer = register()
+    body = reply_body(
+        request_id,
+        text="**晴れ** [資料](https://example.test) 次はhttps://example.test/docs。続きです。 😊",
+    )
+    assert await post(client, base, request_id, key, body, now[0]) == (
+        200, {"status": "accepted"},
+    )
+    assert (await answer).text == "晴れ 資料リンク 次はリンク。続きです。"
+
+
+async def test_reply_that_cleans_to_empty_is_rejected_without_completing_request(inbox):
+    now, registry, client, base, key, register = inbox
+    request_id, answer = register()
+    empty_after_cleanup = reply_body(request_id, text="**_~#😊")
+    assert (await post(client, base, request_id, key, empty_after_cleanup, now[0]))[0] == 422
+    assert registry.state(request_id) == "pending"
+    corrected = reply_body(request_id, text="返事です")
+    assert await post(client, base, request_id, key, corrected, now[0]) == (
+        200, {"status": "accepted"},
+    )
+    assert (await answer).text == "返事です"
+
+
+async def test_keycap_emoji_only_reply_is_rejected(inbox):
+    now, _, client, base, key, register = inbox
+    request_id, _ = register()
+    body = reply_body(request_id, text="1️⃣")
+    assert (await post(client, base, request_id, key, body, now[0]))[0] == 422
+
+
+async def test_markdown_horizontal_rule_only_reply_is_rejected(inbox):
+    now, _, client, base, key, register = inbox
+    request_id, _ = register()
+    body = reply_body(request_id, text="---")
+    assert (await post(client, base, request_id, key, body, now[0]))[0] == 422
+
+
+async def test_emoji_presentation_sequences_are_rejected_as_a_unit(inbox):
+    now, _, client, base, key, register = inbox
+    for text in ("㊗️", "↔️", "‼️"):
+        request_id, _ = register()
+        body = reply_body(request_id, text=text)
+        assert (await post(client, base, request_id, key, body, now[0]))[0] == 422
+
+
+async def test_speech_cleanup_preserves_japanese_units(inbox):
+    now, _, client, base, key, register = inbox
+    request_id, answer = register()
+    body = reply_body(request_id, text="時速60㎞です。")
+    assert await post(client, base, request_id, key, body, now[0]) == (
+        200, {"status": "accepted"},
+    )
+    assert (await answer).text == "時速60㎞です。"
+
+
+async def test_markdown_url_does_not_swallow_following_japanese_text(inbox):
+    now, _, client, base, key, register = inbox
+    request_id, answer = register()
+    body = reply_body(request_id, text="[資料](https://example.invalid)です。")
+    assert await post(client, base, request_id, key, body, now[0]) == (
+        200, {"status": "accepted"},
+    )
+    assert (await answer).text == "資料リンクです。"
 
 
 async def test_malformed_headers_and_json(inbox):

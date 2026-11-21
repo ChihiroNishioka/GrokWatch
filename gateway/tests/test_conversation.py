@@ -62,7 +62,8 @@ async def test_error_and_declined_audio(scenario, code, expected):
         calls.append(text)
         return bytes([calls.index(text) + 1]) * 640
 
-    options = dict(bridge_name="mock", mock_mode={"bridge": "fail"}.get(scenario, "post_reply"),
+    options = dict(bridge_name="mock", mock_mode={"bridge": "fail", "empty_ok": "fixed",
+                                                   "error": "fixed"}.get(scenario, "post_reply"),
                    mock_status="error" if scenario.startswith("error") else
                    "declined" if scenario == "declined" else "ok",
                    mock_text="" if scenario in {"error", "empty_ok"} else "試験返事",

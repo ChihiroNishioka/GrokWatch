@@ -23,4 +23,5 @@ if launchctl print "$target" >/dev/null 2>&1; then
 	launchctl bootout "$target"
 fi
 rm -f -- "$plist_path"
-printf 'Removed: %s. Logs and Keychain items were kept.\n' "$LABEL"
+printf 'LaunchAgent %s を削除しました。ログと Keychain 項目は残しました。Serve を設定した場合は、次のコマンドで返信口を解除してください。\n' "$LABEL"
+printf '%s\n' 'tailscale serve --https=443 --set-path=/v1/reply off'

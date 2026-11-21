@@ -40,6 +40,37 @@ done
 if command -v tailscale >/dev/null 2>&1; then
 	printf '%s\n' 'Tailscale Serve:'
 	tailscale serve status || true
+	if tailscale funnel status --json 2>/dev/null | python3 -c '
+import json
+import sys
+
+def enabled(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, dict):
+        return any(enabled(item) for item in value.values())
+    if isinstance(value, list):
+        return any(enabled(item) for item in value)
+    return False
+
+def has_funnel(value):
+    if isinstance(value, dict):
+        return any(
+            enabled(item) if key == "AllowFunnel" else has_funnel(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(has_funnel(item) for item in value)
+    return False
+
+try:
+    active = has_funnel(json.load(sys.stdin))
+except (ValueError, TypeError):
+    sys.exit(1)
+sys.exit(0 if active else 1)
+'; then
+		printf '%s\n' 'WARNING: Funnel is active; the reply service may be public'
+	fi
 else
 	printf '%s\n' 'Tailscale Serve: unavailable'
 fi

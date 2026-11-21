@@ -28,56 +28,109 @@ fi
 exec python3 - "$account" "$file" <<'PY'
 import errno
 import os
+import re
 import select
 import signal
+import stat
 import sys
 import time
 from pathlib import Path
 
 account, filename = sys.argv[1:]
-secret = Path(filename).read_bytes().rstrip(b"\r\n")
+source = Path(filename)
+descriptor = os.open(source, os.O_RDONLY | os.O_NONBLOCK)
+with os.fdopen(descriptor, "rb") as secret_file:
+    source_stat = os.fstat(secret_file.fileno())
+    mode = stat.S_IMODE(source_stat.st_mode)
+    if not stat.S_ISREG(source_stat.st_mode) or mode & ~0o600:
+        raise SystemExit("Secret file permissions must be no broader than 600")
+    secret = bytearray(secret_file.read().rstrip(b"\r\n"))
 if not secret or b"\0" in secret:
     raise SystemExit("Secret file is empty or invalid")
+
+try:
+    timeout = float(os.environ.get("GROKWATCH_TEST_KEYCHAIN_TIMEOUT_SECONDS", "15"))
+except ValueError:
+    raise SystemExit("Invalid Keychain prompt timeout")
+if timeout <= 0:
+    raise SystemExit("Invalid Keychain prompt timeout")
 
 pid, terminal = os.forkpty()
 if pid == 0:
     os.execvp("security", ["security", "add-generic-password", "-s", "grokwatch",
                             "-a", account, "-U", "-w"])
 
-deadline = time.monotonic() + 15
+deadline = time.monotonic() + timeout
 buffer = bytearray()
-sent = False
+prompt_count = 0
+status = None
+child_reaped = False
+failure = None
 try:
-    while time.monotonic() < deadline:
-        ready, _, _ = select.select([terminal], [], [], max(0, deadline - time.monotonic()))
-        if not ready:
+    while status is None:
+        waited, child_status = os.waitpid(pid, os.WNOHANG)
+        if waited:
+            status = child_status
+            child_reaped = True
             break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            failure = "Keychain prompt timed out"
+            break
+        ready, _, _ = select.select([terminal], [], [], min(0.1, remaining))
+        if not ready:
+            continue
         try:
             chunk = os.read(terminal, 1024)
         except OSError as error:
             if error.errno == errno.EIO:
-                break
+                continue
             raise
         if not chunk:
-            break
+            continue
         buffer.extend(chunk)
-        if not sent and b"password" in buffer.lower():
+        prompts = list(re.finditer(rb"(?:retype\s+)?password[^:\r\n]*:", buffer, re.IGNORECASE))
+        consumed = 0
+        for prompt in prompts:
+            if prompt_count == 2:
+                failure = "Unexpected extra Keychain prompt"
+                break
             os.write(terminal, secret + b"\n")
-            secret = b"\0" * len(secret)
-            sent = True
-    if not sent:
-        os.kill(pid, signal.SIGTERM)
-        raise SystemExit("Keychain prompt was not received")
-    _, status = os.waitpid(pid, 0)
+            prompt_count += 1
+            consumed = prompt.end()
+        if consumed:
+            del buffer[:consumed]
+        if len(buffer) > 512:
+            del buffer[:-256]
+        if failure:
+            break
+    if status is not None:
+        if prompt_count != 2:
+            failure = "Keychain did not request both password entries"
+        elif not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+            failure = "Keychain update failed"
 finally:
     os.close(terminal)
-    if not sent:
+    if not child_reaped:
         try:
-            os.waitpid(pid, 0)
+            os.kill(pid, signal.SIGKILL)
         except ChildProcessError:
             pass
+        except ProcessLookupError:
+            pass
+        cleanup_deadline = time.monotonic() + 1
+        while not child_reaped and time.monotonic() < cleanup_deadline:
+            try:
+                waited, _ = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if waited:
+                child_reaped = True
+            else:
+                time.sleep(min(0.01, cleanup_deadline - time.monotonic()))
+    secret[:] = b"\0" * len(secret)
 
-if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
-    raise SystemExit("Keychain update failed")
+if failure:
+    raise SystemExit(failure)
 print(f"Stored Keychain item {account}")
 PY

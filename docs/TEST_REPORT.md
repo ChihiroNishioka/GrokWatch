@@ -1,28 +1,27 @@
 # Phase 3〜4 テスト報告
 
-2026-11-21 JST、Linux 開発機で 3 回目レビューの残件修正と Mac mini 設置ファイルを確認した。Mac mini と実機には触れていない。
+2026-11-21 JST、Linux 開発機で Review 6 の修正を検証した。Mac、Mac mini、実機には触れていない。
 
 ## 結果
 
 | 対象 | 結果 | 実行内容 |
 | --- | --- | --- |
-| ホスト C++ 通常 | 67/67 通過 | `cmake -S firmware/host_test -B /tmp/gw-deploy6-host -DGROKWATCH_SANITIZERS=OFF`、build、ctest |
-| ホスト C++ ASan / UBSan | 67/67 通過 | `GROKWATCH_SANITIZERS=ON` で build、`UBSAN_OPTIONS=halt_on_error=1` の ctest |
-| Python 3.13.5 | 149/149 通過 | `uv run --locked --all-packages --python 3.13 pytest gateway/tests bridge/tests tests/e2e tests/repo` |
-| Python 3.11.18 | 149/149 通過 | 同じ pytest 対象を Python 3.11 で実行。uv の Python 保存先は書き込み可能なキャッシュに指定 |
-| ESP-IDF v5.5.4 | 通過 | `export.sh` の環境で `firmware` から `idf.py build`。生成イメージは 0x121f80 バイト |
-| Mac 配置リポジトリテスト | 11/11 通過 | plist、shell 構文、固定 launchctl 対象、偽コマンドを使った dry-run・冪等性・ポート・Keychain 不足検査 |
-| ShellCheck 0.10.0 | 通過 | `deploy/macos/*.sh` を検査 |
-| PII 検査 | 通過 | `bash scripts/check_pii.sh`。読み取り専用の Git 管理領域に書き込まず、一時 index を使って検査 |
+| ホスト C++ 通常 | 67/67 通過 | `/tmp/gw-fix7-host` で configure、build、ctest |
+| ホスト C++ ASan / UBSan | 67/67 通過 | `/tmp/gw-fix7-host-sanitized` で sanitizer 付き configure、build、ctest |
+| Python 3.13.5 | 171/171 通過 | `uv run --locked --all-packages --python 3.13 pytest gateway/tests bridge/tests tests/e2e tests/repo` |
+| Python 3.11.18 | 171/171 通過 | 同じ pytest 対象を Python 3.11 で実行 |
+| macOS 配置テスト | 25/25 通過 | Keychain、LaunchAgent、dry-run、status の偽コマンド検査 |
+| ShellCheck 0.11.0 | 通過 | `deploy/macos/*.sh` を検査 |
+| PII 検査 | 通過 | `bash scripts/check_pii.sh` |
+| ファームウェア | ビルド不要 | ファームウェアに変更なし |
 
-## レビュー残件の確認
+## Review 6 の確認
 
-- `/v1/reply` の aiohttp Application は `auto_decompress=False` を設定済みだった。gzip 本文で 415 になることと展開器が呼ばれないことを確認した。別の境界テストは受信本文 8,192/8,193 バイトを区別し、HMAC テストはそのままの本文と 1 バイト違う本文を区別する。設定を外した比較では展開器が呼ばれ、新しいテストが失敗した。
-- 認証前の不正 UTF-8 テキストは修正前に 1007 で閉じることを確認し、未認証時だけ 4003 に写す処理を加えた。回帰テストは 4003 を確認する。
-- ファームは core の単一 FIFO に制御イベントと音声記述子を受信順で格納する。保留音声上限を超えた場合は新しい音声だけを捨てて数え、制御イベントは順序どおり処理する。ホストテストは順序、音声溢れ、制御キュー溢れを確認する。再生バッファの破棄方針と合わせ、仕様 §4.5・§5 に二段階の破棄を明記した。
-- plist と macOS スクリプトの検査は Linux 上の偽コマンドで実行した。Keychain、LaunchAgent、Tailscale の実環境は未検証。
+- Keychain の偽 `security` で引数、2回の入力、入力不足、無応答、長い出力後の再入力、権限超過、FIFO の非ブロッキング拒否を確認した。期限切れは子を終了し、PTY を閉じて非0で終わる。
+- LaunchAgent の再適用、子プロセスのリスナー、停止待ち、bootstrap 失敗、heredoc を使わない dry-run を偽コマンドで確認した。
+- Tailscale の `ipn/ipnlocal/serve.go` にある `serveWebHandler` はマウントパスを `StripPrefix` で除く。`reverseProxy.ServeHTTP` は残ったパスを設定済みの転送先パスに結合するため、転送先にも `/v1/reply` を指定する。Gateway の GET は 405、署名付き POST は `200 {"status":"accepted"}` を返す。
+- 返信本文は Markdown 記号、URL、絵文字を整え、整形後に空なら 422 で保留要求を受理しない。
 
 ## 未検証
 
-- Mac mini への設置、Keychain 登録、実際の whisper.cpp・Kyoko 音声、LaunchAgent の起動、Tailscale Serve の HTTPS 到達性。
-- C152 実機の画面・タッチ・収音・再生・通信と、設定・バックアップ・書き込み・復旧。
+- macOS の Keychain、LaunchAgent、受信許可ダイアログと Tailscale Serve の HTTPS 到達性は未確認。C152 実機も未確認。

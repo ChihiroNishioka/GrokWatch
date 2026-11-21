@@ -71,7 +71,7 @@ git diff --exit-code -- firmware/dependencies.lock
 
    インストールした実行ファイルは LaunchAgent の PATH から使えます。モデルはリポジトリの外に置きます。
 
-4. Confirm that macOS provides the Kyoko voice.
+4. macOS に Kyoko の音声があることを確認します。
 
    ```bash
    say -v '?' | grep -w Kyoko
@@ -97,7 +97,7 @@ security find-generic-password -s grokwatch -a GROKWATCH_WEBHOOK_URL
 security find-generic-password -s grokwatch -a GROKWATCH_WEBHOOK_KEY
 ```
 
-### Mock bridge で起動する
+### mock ブリッジで起動する
 
 オーナーの導入承認後、リポジトリのルートから実行します。インストーラーが扱う LaunchAgent は `com.grokwatch.gateway` だけです。8765 または 8767 番ポートを別プロセスが使っている場合は停止します。
 
@@ -108,15 +108,21 @@ bash deploy/macos/status.sh
 curl --fail --silent http://127.0.0.1:8767/healthz
 ```
 
-`status.sh` prints the LaunchAgent state, ports, health response code, Keychain item presence, and Tailscale Serve state. The mock bridge does not require webhook Keychain items.
+`status.sh` は LaunchAgent の状態、ポート、ヘルス応答、Keychain 項目の有無、Tailscale Serve の状態を表示します。`mock` ブリッジでは Webhook の Keychain 項目は不要です。
 
-Mac mini 上で偽デバイスから Gateway までの疎通を確認するには、既存の end-to-end テストを実行します。テストは専用のモック Gateway を起動し、実機には接続しません。
+Mac mini で偽デバイスから Gateway までの疎通を確認するには、結合テストを実行します。テストは専用のモック Gateway を起動し、実機には接続しません。
 
 ```bash
 uv run --locked --all-packages --python 3.11 pytest tests/e2e
 ```
 
-### Webhook と Tailscale Serve に切り替える
+### 再起動後に Gateway を起動する
+
+LaunchAgent は GUI にログインしたユーザーとして起動します。再起動後に同じユーザーでログインしてください。Gateway が秘密を読むには、ログインキーチェーンもロック解除されている必要があります。
+
+Gateway が初めてポートを開くと、macOS が受信接続の許可を求める場合があります。ダイアログが表示されたら、リポジトリの `.venv/bin/python` による受信接続を許可してください。
+
+### Webhook ブリッジと Tailscale Serve に切り替える
 
 モックで確認した後、webhook 用の Keychain 項目を 2 つ登録し、同じ LaunchAgent を更新します。
 
@@ -126,11 +132,15 @@ bash deploy/macos/install.sh --bridge webhook \
 bash deploy/macos/status.sh
 ```
 
-[Tailscale Serve の設定](../deploy/macos/tailscale-serve.md)に従い、tailnet には `/v1/reply` だけを公開します。この手順には Funnel が有効でないことの確認と Serve 経路の解除方法も記載しています。
+[Tailscale Serve の設定](../deploy/macos/tailscale-serve.md)にある事前確認と返信テストを行い、tailnet には `/v1/reply` だけを公開します。Serve のパス設定は次のとおりです。ガイドには Funnel の確認と経路の解除方法も記載しています。
+
+```bash
+tailscale serve --bg --https=443 --set-path=/v1/reply http://127.0.0.1:8767/v1/reply
+```
 
 ### Gateway をアンインストールする
 
-アンインストールでこの LaunchAgent と plist を削除します。ログと Keychain 項目は残します。
+Tailscale Serve を設定した場合は、先に[返信口の経路を解除する手順](../deploy/macos/tailscale-serve.md)を実行します。アンインストールでこの LaunchAgent と plist を削除します。ログと Keychain 項目は残します。
 
 ```bash
 bash deploy/macos/uninstall.sh --dry-run

@@ -1,16 +1,16 @@
-# Store Gateway secrets in Keychain
+# Gateway の秘密を Keychain に保存する
 
-Gateway reads these generic-password items from the `grokwatch` service. The account names match `gateway/src/grokwatch_gateway/config.py`.
+Gateway は `grokwatch` サービスの一般パスワード項目から秘密を読みます。アカウント名は `gateway/src/grokwatch_gateway/config.py` に対応します。
 
-| Account | Required when |
+| アカウント | 必要な条件 |
 | --- | --- |
-| `GROKWATCH_DEVICE_TOKEN` | Always |
-| `GROKWATCH_WEBHOOK_URL` | `GROKWATCH_BRIDGE=webhook` |
-| `GROKWATCH_WEBHOOK_KEY` | `GROKWATCH_BRIDGE=webhook` |
+| `GROKWATCH_DEVICE_TOKEN` | 常に必要 |
+| `GROKWATCH_WEBHOOK_URL` | `GROKWATCH_BRIDGE=webhook` のとき必要 |
+| `GROKWATCH_WEBHOOK_KEY` | `GROKWATCH_BRIDGE=webhook` のとき必要 |
 
-## Add an item interactively
+## 対話形式で登録する
 
-Pass the account name to the helper. It runs `security add-generic-password -s grokwatch -a <account> -U -w` with `-w` last, so `security` prompts for the value.
+アカウント名を補助スクリプトに渡します。スクリプトは `security add-generic-password -s grokwatch -a <account> -U -w` を実行します。`-w` に値を渡さないため、`security` が入力を求めます。
 
 ```bash
 bash deploy/macos/keychain-add.sh GROKWATCH_DEVICE_TOKEN
@@ -18,9 +18,9 @@ bash deploy/macos/keychain-add.sh GROKWATCH_WEBHOOK_URL
 bash deploy/macos/keychain-add.sh GROKWATCH_WEBHOOK_KEY
 ```
 
-## Add an item from a protected file
+## 権限を制限したファイルから登録する
 
-Set the source file so only your account can read it. The helper sends the file contents through a hidden terminal prompt. The value does not appear in the process arguments or command output.
+入力ファイルの権限を `0600` 以下にします。権限が `0600` より広いファイルは拒否します。補助スクリプトはファイルの内容を非表示の端末入力から送るため、値はプロセス引数やコマンド出力に現れません。`security` が出す値の入力と確認入力の両方に、同じ内容を一度ずつ送ります。15 秒以内に両方の入力を確認できない場合は失敗します。
 
 ```bash
 chmod 600 "$TMPDIR/gw-secret"
@@ -28,18 +28,18 @@ bash deploy/macos/keychain-add.sh --file "$TMPDIR/gw-secret" GROKWATCH_DEVICE_TO
 rm -f "$TMPDIR/gw-secret"
 ```
 
-Repeat the command with the account name for each webhook item. Do not put the values in this repository, shell command arguments, shell history, or logs.
+Webhook 項目を登録するときは、アカウント名を置き換えて実行します。値をリポジトリ、コマンド引数、シェル履歴、ログに書かないでください。
 
-## Check that an item exists
+## 項目の有無を確認する
 
-Omit `-w` to check the item without printing its value.
+値を表示しないように、`-w` を付けずに実行します。
 
 ```bash
 security find-generic-password -s grokwatch -a GROKWATCH_DEVICE_TOKEN
 ```
 
-The installer checks item presence in the same way. It prints only missing account names. It does not read webhook items when you select the mock bridge.
+インストーラーも同じ方法で項目の有無を確認し、不足しているアカウント名だけを表示します。`mock` ブリッジを選んだ場合、Webhook 項目は読みません。
 
-## Remove an item manually
+## 項目を手動で削除する
 
-Uninstall leaves Keychain entries in place. To remove one, run `security delete-generic-password -s grokwatch -a <account>` for that account after you stop the Gateway.
+アンインストールでは Keychain 項目を残します。Gateway を停止してから、対象のアカウント名を指定して `security delete-generic-password -s grokwatch -a <account>` を実行してください。

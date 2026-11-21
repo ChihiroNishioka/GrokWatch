@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import re
+from dataclasses import replace
 from uuid import UUID
 
 from aiohttp import web
@@ -12,7 +13,18 @@ from grokwatch_bridge.signing import signature
 _BODY_LIMIT = 8192
 _TIMESTAMP = re.compile(r"[+-]?[0-9]{1,32}")
 _SIGNATURE = re.compile(r"sha256=[a-fA-F0-9]{64}")
+_URL = re.compile(
+    r"(?i)(?:https?://|www\.)[^\s<>\[\]{}()。！？、：；」』））》〉】]+"
+)
+_MARKDOWN = re.compile(r"[*_`~#>\[\](){}|\\]")
+_KEYCAP = re.compile(r"[#*0-9]\ufe0f?\u20e3")
+_EMOJI_PRESENTATION = re.compile(r"[^\s]\ufe0f")
+_EMOJI_CHAR = re.compile(
+    r"[\u2300-\u23ff\u2600-\u27bf\u2b00-\u2bff\U0001f000-\U0001faff]"
+)
 _EMOTIONS = {"neutral", "happy", "sad", "surprised", "thinking"}
+_URL_ENDING = ".,!?;:，。！？、」』）)]}"
+_EMOJI_JOINERS = {"\ufe0e", "\ufe0f", "\u200d", "\u20e3"}
 
 
 def valid_id(value):
@@ -39,6 +51,26 @@ def parse_reply(raw, request_id):
         return ReplyChunk(text, status, emotion if emotion in _EMOTIONS else "neutral", end_conversation=end)
     except (ValueError, RecursionError):
         return None
+
+
+def clean_speech_text(text):
+    def replace_url(match):
+        value = match.group()
+        trimmed = value.rstrip(_URL_ENDING)
+        return "リンク" + value[len(trimmed):]
+
+    text = re.sub(r"(?m)^\s*(?:-\s*){3,}\s*$", "", text)
+    text = re.sub(r"(?m)^\s*(?:[-+]|\d+[.)])\s+", "", text)
+    text = _URL.sub(replace_url, text)
+    text = _MARKDOWN.sub("", text)
+    text = _KEYCAP.sub("", text)
+    text = _EMOJI_PRESENTATION.sub("", text)
+    text = "".join(
+        "" if _EMOJI_CHAR.fullmatch(char) or char in _EMOJI_JOINERS
+        or 0xE0020 <= ord(char) <= 0xE007F else char
+        for char in text
+    )
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def reply_handler(registry, clock, log):
@@ -94,6 +126,10 @@ def reply_handler(registry, clock, log):
             return response(409, **fields)
         if (reply := parse_reply(raw, request_id)) is None:
             return response(422, **fields)
+        cleaned_text = clean_speech_text(reply.text)
+        if not cleaned_text:
+            return response(422, **fields)
+        reply = replace(reply, text=cleaned_text)
         registry.accept(entry, digest, reply)
         return response(200, request_id=request_id, state="answered", outcome="accepted", reply=reply)
 
