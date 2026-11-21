@@ -195,8 +195,9 @@ bool configureAudio() {
 
 void audioTask(void* context) {
     auto& app = *static_cast<App*>(context);
-    Capture capture;
-    Playback playback;
+    // There is one audio task, so it owns these persistent buffers in static storage.
+    static Capture capture;
+    static Playback playback;
     auto appliedVolume = grokwatch::defaultVolumeValue;
     M5.Speaker.setVolume(appliedVolume);
     for (;;) {

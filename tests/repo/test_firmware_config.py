@@ -76,7 +76,7 @@ def test_log_formats_allowlisted(repo_root):
         "diag ws: connected",
         "diag ws: error",
         "diag ws: disconnected",
-        "diag stack net free=%u",
+        "diag stack free net=%u audio=%u render=%u buttons=%u touch=%u",
         "volume value=%u",
     }
 

@@ -61,47 +61,44 @@ M5Unified の `Speaker.begin()` 失敗処理と `playRaw` 失敗時の `stop()` 
 - Speaking中の音量変更と録音・再生の切り替えで、音が途切れたり再接続したりしないかは未確認。
 - 実機の `ota_1` への書き込みは未実施。書き込み前バックアップと実機パーティション表の再確認も未実施。
 
-## net タスクのスタック overflow 修正
+## タスクスタック検査と net overflow 修正
 
-2026-11-22 JST、Linux 開発機で `feat/volume` の作業ツリーを検証した。ビルドと自動テストだけを行い、Mac、Mac mini、実機には触れていない。
+2026-11-22 JST、Linux 開発機で変更を検証した。検証対象はこの修正のコミットである。Mac、Mac mini、実機には触れていない。
 
 ### 原因と修正
 
-落ちた ELF では `Network` が `netTask` のローカル変数で、枠は 7,792 B だった。`Network` の `Socket` は 4,096 B のテキストバッファと、`SocketEventQueue` の 768 B 配列を持つ。`diagScan` も 20 個の `wifi_ap_record_t` をローカルに置き、枠は 1,920 B だった。Wi-Fi 診断走査経路は関数枠の合計が 10,160 B で、ログと IDF 用の 3,072 B を足すと 13,232 B になり、net タスクの 12,288 B を超えた。
+停止を確認した ELF の識別子は `91e60f887` である。前回の解析で測定した経路の関数枠合計は 10,160 B だった。ここにライブラリと ESP_LOG の枠（推定）が加わり、12,288 B を越えたと推定する。10,160 B は測定値であり、ライブラリとログの加算分は実測値ではない。停止記録だけでは実際に通った関数経路を確定できない。
 
-`Network` と AP 記録配列を静的領域へ移した。`netTask` は 144 B、`diagScan` は 80 B になった。診断ログの書式と音量機能の動作は変えていない。`diagScan` のあとと WebSocket の初回接続時に net タスクの残量を記録する。
+旧版 `1f8a375` のクリーンビルドでは `netTask` の枠が 7,792 B、`diagScan` の枠が 1,920 B だった。`Network` の `Socket` は 4,096 B のテキストバッファと 768 B のキューを持つ。診断走査経路の測定合計 10,160 B に 3,072 B の推定余裕を加えると 13,232 B になる。新しいグラフ検査は旧 ELF で 10,192 B の直接経路と再帰も検出し、非ゼロで終了した。
 
-| 関数 | 修正前 | 修正後 | 上限 |
-| --- | ---: | ---: | ---: |
-| `netTask` | 7,792 B | 144 B | 2,048 B |
-| `diagScan` | 1,920 B | 80 B | 2,048 B |
-| `audioTask` | 2,688 B | 2,688 B | 3,072 B の例外 |
+`Network` と AP 記録配列に続き、`Capture` と `Playback` の PCM 配列も静的領域へ移した。audioTask は 2,688 B から 64 B になった。1つだけ作る audio タスクが両オブジェクトを所有する。タスク枠 6,144 B は変えていない。接続失敗時に `linkAction` が自身を呼ぶ経路も、同じ切断処理へ進む非再帰の分岐に変えた。
 
-### タスク経路の予算
+### 呼び出しグラフと余裕
 
-検査器は関数枠を逆アセンブルから読み、各経路に余裕を足して `app_main.cpp` のタスク枠と比べる。net と audio は 3,072 B、buttons と render は 2,048 B を余裕として確保する。
+検査器は `call0`、`call4`、`call8`、`call12` から直接呼び出しグラフを作り、各 `xTaskCreate` 入口から DFS で最悪経路を出す。`_vfprintf_r` の 800 B は objdump から読み取った実測値である。各タスクからの外部直接呼び出しで測定できた最大枠も示す。外部ライブラリの呼び出し連鎖全体と余裕は推定である。
 
-| タスク | 修正前の最大列挙経路の使用見積もり | 修正後の最大列挙経路の使用見積もり | タスク枠 |
-| --- | ---: | ---: | ---: |
-| net | 13,232 B（診断走査） | 5,072 B（JSON エスケープ解析） | 12,288 B |
-| buttons | 2,192 B | 2,192 B | 3,072 B |
-| render | 3,008 B | 3,008 B | 6,144 B |
-| audio | 5,952 B | 5,952 B | 6,144 B |
+| タスク | 最悪経路 | 関数枠合計 | 外部直接枠の最大実測 | 余裕と根拠 | 見積もり / タスク枠 |
+| --- | --- | ---: | ---: | --- | ---: |
+| net | `netTask` → `Network::run` → `pollSocket` → `receiveText` → `linkAction` → `apply` → `send` → `Socket::sendText` → `encode` → `hasFields` → `Message::string` → `find` | 2,576 B | 80 B `esp_websocket_client_init` | 3,072 B。`_vfprintf_r` 800 B と ESP_LOG、Wi-Fi、FreeRTOS の連鎖を含む推定 | 5,648 / 12,288 B |
+| audio | `audioTask` → `Playback::pump` → `AudioLevel::frame` → `AudioLevel::value` | 272 B | 80 B `Speaker_Class::_play_raw` | 3,072 B。M5Unified Mic、Speaker、I2S の連鎖を含む推定 | 3,344 / 6,144 B |
+| render | `renderTask` → lambda → `FaceAnimator::frame` → `Blink::update` → `Blink::trigger` → `interval` | 1,136 B | 144 B `LGFX_Sprite::push_sprite` | 3,072 B。M5GFX と M5Unified の描画連鎖を含む推定 | 4,208 / 6,144 B |
+| buttons | `buttonTask` → `VolumeKeys::sample` | 144 B | 32 B `gpio_get_level` | 2,048 B。GPIO と FreeRTOS の連鎖を含む推定 | 2,192 / 3,072 B |
+| touch | `touchTask` → `GestureDetector::sample` → `GestureDetector::update` | 400 B | 64 B `i2c::transactionWriteRead` | 3,072 B。M5Unified、LGFX I2C、FreeRTOS の連鎖を含む推定 | 3,472 / 4,096 B |
 
-この表は検査器に列挙した主要経路の関数枠合計に余裕を足した見積もりである。間接呼び出しと IDF・ライブラリ内部の全経路は解析していない。余裕はそれらの枠を実測した値ではない。
+### 静的メモリ
 
-net の主な経路も予算内になった。診断走査は 13,232 B から 3,744 B、WebSocket の JSON エスケープ解析は 12,720 B から 5,072 B、メッセージ検証は 12,608 B から 4,960 B になった。
+`xtensa-esp32s3-elf-size` の `.bss` は 2,211,437 B から 2,223,525 B へ 12,088 B 増えた。`idf.py size` の内部 DRAM 使用量は 201,987 B から 214,187 B へ 12,200 B 増えた。内部 DRAM は合計 341,760 B で、修正後の静的空きは 127,573 B である。5タスクの枠は合計 31,744 B なので、スタックを差し引いても 95,829 B が動的確保前に残る。内部 DRAM の `.bss` は 86,992 B から 99,136 B へ増えた。アプリは 1,195,392 / 4,194,304 bytes である。Wi-Fi 起動後の実ヒープ空きは実機未確認である。
 
 ### 検証結果
 
 | 対象 | 結果 | 実行内容 |
 | --- | --- | --- |
-| ホスト C++ 通常 | 94/94 通過 | `GROKWATCH_SANITIZERS=OFF` で configure、build、ctest |
+| スタック検査 | 旧 ELF は失敗。修正後 ELF は通過 | `.runs/volume/stack-red2.log` と `stack-green2.log` |
+| 修正後 ELF | SHA256 prefix `7a2ddd739` | `scripts/check_stack_frames.py` の先頭行 |
+| ファームウェア | クリーンビルドとパーティション検査が通過 | 追跡ファイルの作業コピー、ESP-IDF 5.5.4、`sdkconfig.local.defaults` なし |
+| ホスト C++ 通常 | 94/94 通過 | `GROKWATCH_SANITIZERS=OFF` の configure、build、ctest |
 | ホスト C++ ASan / UBSan | 94/94 通過 | `GROKWATCH_SANITIZERS=ON`、`UBSAN_OPTIONS=halt_on_error=1` で ctest |
-| Python 3.13.5 | 186/186 通過 | gateway、bridge、e2e、repo の pytest |
-| Python 3.11.18 | 186/186 通過 | 同じ pytest 対象 |
-| スタック検査 | 旧 ELF は期待どおり失敗。新 ELF は通過 | `scripts/check_stack_frames.py` を旧 ELF と新しいクリーンビルド ELF に実行 |
-| ファームウェア | クリーンビルドとパーティション検査が通過 | 追跡ソースと今回の変更を新しい場所へ展開し、`sdkconfig.local.defaults` なしで ESP-IDF 5.5.4 を実行 |
-| アプリサイズ | 1,195,280 bytes | factory 領域 4,194,304 bytes 以下 |
+| Python 3.13.5 | 190/190 通過 | gateway、bridge、e2e、repo の pytest |
+| Python 3.11.18 | 190/190 通過 | gateway、bridge、e2e、repo の pytest |
 
-実機は未確認である。`diag stack net free=%u` はビルド済みソースにあり、実機での残量はまだ記録していない。
+実機の high-water 値は未確認である。GREEN の実機条件は起動から10分、再接続と1回以上の JSON・音声送受信の後、全タスクで空き 1,024 B 以上、stack overflow と再起動がないこととする。60秒ごとの診断ログで確認する。

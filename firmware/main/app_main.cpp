@@ -24,11 +24,11 @@ extern "C" void app_main() {
         return;
     }
 
-    if (xTaskCreate(buttonTask, "buttons", 3072, &app, 5, nullptr) != pdPASS ||
-        xTaskCreate(renderTask, "render", 6144, &app, 4, nullptr) != pdPASS ||
-        xTaskCreate(touchTask, "touch", 4096, &app, 5, nullptr) != pdPASS ||
-        xTaskCreate(audioTask, "audio", 6144, &app, 6, nullptr) != pdPASS ||
-        xTaskCreate(netTask, "net", 12288, &app, 5, nullptr) != pdPASS) {
+    if (xTaskCreate(buttonTask, "buttons", 3072, &app, 5, &app.buttonTaskHandle) != pdPASS ||
+        xTaskCreate(renderTask, "render", 6144, &app, 4, &app.renderTaskHandle) != pdPASS ||
+        xTaskCreate(touchTask, "touch", 4096, &app, 5, &app.touchTaskHandle) != pdPASS ||
+        xTaskCreate(audioTask, "audio", 6144, &app, 6, &app.audioTaskHandle) != pdPASS ||
+        xTaskCreate(netTask, "net", 12288, &app, 5, &app.netTaskHandle) != pdPASS) {
         ESP_LOGE("grokwatch", "task_start_failed");
     }
 }

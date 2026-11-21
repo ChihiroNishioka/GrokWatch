@@ -1,92 +1,47 @@
+import hashlib
 import re
 import subprocess
 import sys
 
 
 DISASSEMBLY = """\
-40000000 <gwapp::netTask(void*)>:
-  0: 00c136 entry a1, 64
-40000008 <gwapp::readConfig()>:
-  8: 00c136 entry a1, 48
-4000000c <gwapp::(anonymous namespace)::Network::Network(gwapp::App&, grokwatch::Config)>:
-  c: 00c136 entry a1, 32
-4000000e <gwapp::(anonymous namespace)::Socket::Socket()>:
-  e: 00c136 entry a1, 32
-40000010 <gwapp::(anonymous namespace)::Network::run()>:
-  10: 00c136 entry a1, 80
-40000020 <gwapp::(anonymous namespace)::startWifi()>:
-  20: 00c136 entry a1, 368
-40000030 <gwapp::(anonymous namespace)::diagScan()>:
-  30: 00c136 entry a1, 32
-40000040 <gwapp::(anonymous namespace)::Network::pollSocket()>:
-  40: 00c136 entry a1, 64
-40000050 <gwapp::(anonymous namespace)::Network::receiveText()>:
-  50: 00c136 entry a1, 48
-40000054 <gwapp::(anonymous namespace)::Network::linkAction()>:
-  54: 00c136 entry a1, 288
-40000056 <gwapp::(anonymous namespace)::Network::send()>:
-  56: 00c136 entry a1, 32
-40000057 <gwapp::(anonymous namespace)::Socket::sendText()>:
-  57: 00c136 entry a1, 64
-40000055 <grokwatch::encode[abi:cxx11](grokwatch::Message const&)>:
-  55: 00c136 entry a1, 208
-40000058 <grokwatch::decode(std::basic_string_view<char, std::char_traits<char> >)>:
-  58: 00c136 entry a1, 160
-40000059 <grokwatch::decode(std::basic_string_view<char, std::char_traits<char> >)::{lambda()#1}::operator()() const>:
-  59: 00c136 entry a1, 32
-4000005c <grokwatch::(anonymous namespace)::Parser::object()>:
-  5c: 00c136 entry a1, 144
-4000005e <grokwatch::(anonymous namespace)::Parser::value()>:
-  5e: 00c136 entry a1, 176
-4000005f <grokwatch::(anonymous namespace)::Parser::quoted()>:
-  5f: 00c136 entry a1, 64
-4000005a <grokwatch::(anonymous namespace)::Parser::escape()>:
-  5a: 00c136 entry a1, 64
-4000005b <grokwatch::(anonymous namespace)::Parser::hexQuad()>:
-  5b: 00c136 entry a1, 80
-4000005d <grokwatch::(anonymous namespace)::hasFields()>:
-  5d: 00c136 entry a1, 336
-4000005b <grokwatch::Message::string()>:
-  5b: 00c136 entry a1, 80
-40000060 <gwapp::(anonymous namespace)::Network::capture()>:
-  60: 00c136 entry a1, 32
-40000070 <gwapp::(anonymous namespace)::Network::pollWifi()>:
-  70: 00c136 entry a1, 48
-40000080 <gwapp::buttonTask(void*)>:
-  80: 00c136 entry a1, 96
-40000090 <grokwatch::VolumeKeys::sample()>:
-  90: 00c136 entry a1, 48
-400000a0 <gwapp::renderTask(void*)>:
-  a0: 00c136 entry a1, 560
-400000b0 <gwapp::renderTask(void*)::{lambda()#1}::operator()() const>:
-  b0: 00c136 entry a1, 224
-400000c0 <gwapp::FaceAnimator::frame()>:
-  c0: 00c136 entry a1, 176
-400000d0 <gwapp::drawFace()>:
-  d0: 00c136 entry a1, 256
-400000e0 <grokwatch::scaleFace()>:
-  e0: 00c136 entry a1, 64
-400000f0 <gwapp::drawRing()>:
-  f0: 00c136 entry a1, 32
-40000100 <gwapp::audioTask(void*)>:
-  100: 00c136 entry a1, 2688
-40000110 <gwapp::Capture::pump()>:
-  110: 00c136 entry a1, 32
-40000120 <gwapp::captureFault()>:
-  120: 00c136 entry a1, 32
-40000130 <gwapp::Playback::pump()>:
-  130: 00c136 entry a1, 112
-40000135 <gwapp::Playback::stop()>:
-  135: 00c136 entry a1, 32
-40000140 <gwapp::Playback::fault()>:
-  140: 00c136 entry a1, 32
-40000150 <gwapp::Playback::dmaTail()>:
-  150: 00c136 entry a1, 32
+40001000 <gwapp::netTask(void*)>:
+  1000: 0000 entry a1, 64
+  1004: 0000 call8 0x40001010 <gwapp::Network::run()>
+  1008: 0000 callx8 a8
+  100c: 0000 call8 0x40002000 <m5::M5Unified::begin()>
+40001010 <gwapp::Network::run()>:
+  1010: 0000 entry a1, 80
+  1014: 0000 call4 0x40001020 <grokwatch::decode()>
+40001020 <grokwatch::decode()>:
+  1020: 0000 entry a1, 160
+  1024: 0000 call12 0x40001030 <grokwatch::Parser::object()>
+40001030 <grokwatch::Parser::object()>:
+  1030: 0000 entry a1, 144
+  1034: 0000 call0 0x40001040 <grokwatch::Parser::value()>
+40001040 <grokwatch::Parser::value()>:
+  1040: 0000 entry a1, 176
+  1044: 0000 call8 0x40001050 <grokwatch::Parser::escape()>
+40001050 <grokwatch::Parser::escape()>:
+  1050: 0000 entry a1, 64
+40001060 <gwapp::buttonTask(void*)>:
+  1060: 0000 entry a1, 96
+40001070 <gwapp::renderTask(void*)>:
+  1070: 0000 entry a1, 560
+40001080 <gwapp::audioTask(void*)>:
+  1080: 0000 entry a1, 64
+40001090 <gwapp::touchTask(void*)>:
+  1090: 0000 entry a1, 128
+400010a0 <grokwatch::unusedLarge()>:
+  10a0: 0000 entry a1, 512
+40002000 <m5::M5Unified::begin()>:
+  2000: 0000 entry a1, 640
 """
 
 APP_MAIN = '''
 xTaskCreate(buttonTask, "buttons", 3072, &app, 5, nullptr);
 xTaskCreate(renderTask, "render", 6144, &app, 4, nullptr);
+xTaskCreate(touchTask, "touch", 4096, &app, 5, nullptr);
 xTaskCreate(audioTask, "audio", 6144, &app, 6, nullptr);
 xTaskCreate(netTask, "net", 12288, &app, 5, nullptr);
 '''
@@ -94,13 +49,16 @@ xTaskCreate(netTask, "net", 12288, &app, 5, nullptr);
 
 def run_check(tmp_path, repo_root, app_source=APP_MAIN, disassembly=DISASSEMBLY):
     dump = tmp_path / "firmware.dis"
+    elf = tmp_path / "firmware.elf"
     app = tmp_path / "app_main.cpp"
     dump.write_text(disassembly)
+    elf.write_bytes(b"stack checker test elf\n")
     app.write_text(app_source)
     return subprocess.run(
         [
             sys.executable,
             str(repo_root / "scripts/check_stack_frames.py"),
+            str(elf),
             "--disassembly-file",
             str(dump),
             "--app-main",
@@ -109,34 +67,60 @@ def run_check(tmp_path, repo_root, app_source=APP_MAIN, disassembly=DISASSEMBLY)
         cwd=repo_root,
         capture_output=True,
         text=True,
-    )
+    ), hashlib.sha256(elf.read_bytes()).hexdigest()[:9]
 
 
-def test_stack_frame_checker_accepts_paths_within_budget(tmp_path, repo_root):
-    result = run_check(tmp_path, repo_root)
+def test_stack_checker_uses_direct_call_graph_and_reports_worst_path(tmp_path, repo_root):
+    result, digest = run_check(tmp_path, repo_root)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "net Wi-Fi 診断走査" in result.stdout
+    assert result.stdout.startswith(f"ELF SHA256 prefix: {digest}\n")
+    assert "gwapp::netTask(void*)[64 B] -> gwapp::Network::run()[80 B] -> " \
+        "grokwatch::decode()[160 B] -> grokwatch::Parser::object()[144 B] -> " \
+        "grokwatch::Parser::value()[176 B] -> grokwatch::Parser::escape()[64 B]" \
+        in result.stdout
+    assert "688 + 3,072 = 3,760 / 12,288 B" in result.stdout
+    assert "net 外部直接呼び出しの最大実測枠: 640 B  m5::M5Unified::begin()" in result.stdout
+    assert "gwapp::unusedLarge()" not in result.stdout
     assert "スタック検査: 合格" in result.stdout
 
 
-def test_stack_frame_checker_rejects_function_over_limit(tmp_path, repo_root):
-    disassembly = DISASSEMBLY + "40000200 <grokwatch::oversized()>:\n  200: entry a1, 2049\n"
-    result = run_check(tmp_path, repo_root, disassembly=disassembly)
+def test_stack_checker_rejects_recursion(tmp_path, repo_root):
+    recursive = DISASSEMBLY.replace(
+        "40001050 <grokwatch::Parser::escape()>:",
+        "40001050 <grokwatch::Parser::escape()>:\n"
+        "  1054: 0000 call0 0x40001020 <grokwatch::decode()>",
+    )
+    result, _ = run_check(tmp_path, repo_root, disassembly=recursive)
+    assert result.returncode != 0
+    assert "再帰呼び出し" in result.stderr
+
+
+def test_stack_checker_rejects_unreadable_internal_frame(tmp_path, repo_root):
+    unreadable = DISASSEMBLY + "40001100 <grokwatch::noFrame()>:\n  1100: retw\n"
+    result, _ = run_check(tmp_path, repo_root, disassembly=unreadable)
+    assert result.returncode != 0
+    assert "gwapp:: / grokwatch:: 関数の枠を読み取れません" in result.stderr
+    assert "grokwatch::noFrame()" in result.stderr
+
+
+def test_stack_checker_rejects_task_reserve_over_budget(tmp_path, repo_root):
+    app_source = APP_MAIN.replace('"net", 12288', '"net", 3700')
+    result, _ = run_check(tmp_path, repo_root, app_source=app_source)
+    assert result.returncode != 0
+    assert "net" in result.stderr
+    assert "3,760 B > タスク枠 3,700 B" in result.stderr
+
+
+def test_stack_checker_rejects_function_over_limit(tmp_path, repo_root):
+    disassembly = DISASSEMBLY + "40001100 <grokwatch::oversized()>:\n  1100: entry a1, 2049\n"
+    result, _ = run_check(tmp_path, repo_root, disassembly=disassembly)
     assert result.returncode != 0
     assert "grokwatch::oversized(): 2,049 B > 2,048 B" in result.stderr
 
 
-def test_stack_frame_checker_rejects_task_path_over_budget(tmp_path, repo_root):
-    app_source = APP_MAIN.replace('"net", 12288', '"net", 3500')
-    result = run_check(tmp_path, repo_root, app_source=app_source)
-    assert result.returncode != 0
-    assert "net Wi-Fi 診断走査" in result.stderr
-    assert "3,616 B > タスク枠 3,500 B" in result.stderr
-
-
-def test_stack_frame_checker_binds_task_size_to_expected_function(tmp_path, repo_root):
+def test_stack_checker_binds_task_size_to_expected_function(tmp_path, repo_root):
     app_source = APP_MAIN.replace('buttonTask, "buttons"', 'renderTask, "buttons"')
-    result = run_check(tmp_path, repo_root, app_source=app_source)
+    result, _ = run_check(tmp_path, repo_root, app_source=app_source)
     assert result.returncode != 0
     assert "app_main.cpp の buttons タスクは buttonTask を起動してください" in result.stderr
 
@@ -163,3 +147,25 @@ def test_diag_scan_keeps_ap_records_out_of_its_stack(repo_root):
     run_end = source.index("\nprivate:", run_start)
     assert "startWifi(config_, wifiEvents_)" in source[run_start:run_end]
     assert source.count("startWifi(") == 2
+
+
+def test_audio_pcm_buffers_use_static_storage(repo_root):
+    source = (repo_root / "firmware/main/audio_task.cpp").read_text()
+    body = source[source.index("void audioTask(void* context)"):]
+    assert "static Capture capture;" in body
+    assert "static Playback playback;" in body
+
+
+def test_periodic_stack_diagnostic_covers_every_task(repo_root):
+    app = (repo_root / "firmware/main/app_main.cpp").read_text()
+    net = (repo_root / "firmware/main/net_task.cpp").read_text()
+    assert "&app.netTaskHandle" in app
+    assert "&app.audioTaskHandle" in app
+    assert "&app.renderTaskHandle" in app
+    assert "&app.buttonTaskHandle" in app
+    assert "&app.touchTaskHandle" in app
+    assert "diag stack free net=%u audio=%u render=%u buttons=%u touch=%u" in net
+    assert "auto nextStackReport = nowMs();" in net
+    assert "if (now >= nextStackReport)" in net
+    assert net.count("uxTaskGetStackHighWaterMark(app_.") == 5
+    assert "diag stack net free=%u" not in net

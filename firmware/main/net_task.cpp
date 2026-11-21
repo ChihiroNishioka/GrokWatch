@@ -261,13 +261,10 @@ public:
     void run() {
         const bool configured = config_.ready();
         const bool wifiStarted = configured && startWifi(config_, wifiEvents_);
-        if (wifiStarted) {
-            ESP_LOGI(tag, "diag stack net free=%u",
-                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
-        }
         if (!configured) ESP_LOGI(tag, "設定なし");
         else if (!wifiStarted) ESP_LOGE(tag, "network_init_failed");
 
+        auto nextStackReport = nowMs();
         while (true) {
             auto now = nowMs();
             if (wifiStarted) {
@@ -290,6 +287,16 @@ public:
             now = nowMs();
             if (audioFault || ioFailed_) linkAction(link_.failed(now, rng_.unit()), now);
             apply(avatar_.tick(now));
+            now = nowMs();
+            if (now >= nextStackReport) {
+                ESP_LOGI(tag, "diag stack free net=%u audio=%u render=%u buttons=%u touch=%u",
+                         static_cast<unsigned>(uxTaskGetStackHighWaterMark(app_.netTaskHandle)),
+                         static_cast<unsigned>(uxTaskGetStackHighWaterMark(app_.audioTaskHandle)),
+                         static_cast<unsigned>(uxTaskGetStackHighWaterMark(app_.renderTaskHandle)),
+                         static_cast<unsigned>(uxTaskGetStackHighWaterMark(app_.buttonTaskHandle)),
+                         static_cast<unsigned>(uxTaskGetStackHighWaterMark(app_.touchTaskHandle)));
+                nextStackReport = now + 60000;
+            }
             vTaskDelay(pdMS_TO_TICKS(5));
         }
     }
@@ -323,11 +330,6 @@ private:
             switch (event.kind) {
                 case SocketEventKind::Open:
                     linkAction(link_.opened(now), now);
-                    if (!reportedWsStackFree_) {
-                        ESP_LOGI(tag, "diag stack net free=%u",
-                                 static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
-                        reportedWsStackFree_ = true;
-                    }
                     break;
                 case SocketEventKind::Closed: linkAction(link_.failed(now, rng_.unit()), now); break;
                 case SocketEventKind::BadText:
@@ -363,11 +365,12 @@ private:
     }
 
     void linkAction(LinkAction action, Millis now) {
+        if (action == LinkAction::Connect && !socket_.open(config_)) {
+            action = link_.failed(now, rng_.unit());
+        }
         switch (action) {
             case LinkAction::None: break;
-            case LinkAction::Connect:
-                if (!socket_.open(config_)) linkAction(link_.failed(now, rng_.unit()), now);
-                break;
+            case LinkAction::Connect: break;
             case LinkAction::Hello:
                 send({Type::Hello, {{"v", 1}, {"token", config_.token},
                                      {"fw", esp_app_get_description()->version}}});
@@ -514,7 +517,6 @@ private:
     AvatarStateMachine avatar_;
     std::uint32_t reportedDroppedAudio_ = 0;
     bool ioFailed_ = false;
-    bool reportedWsStackFree_ = false;
 };
 }
 

@@ -19,6 +19,11 @@ struct App {
     SemaphoreHandle_t mutex = nullptr;
     QueueHandle_t gestures = nullptr;
     QueueHandle_t captured = nullptr;
+    TaskHandle_t netTaskHandle = nullptr;
+    TaskHandle_t audioTaskHandle = nullptr;
+    TaskHandle_t renderTaskHandle = nullptr;
+    TaskHandle_t buttonTaskHandle = nullptr;
+    TaskHandle_t touchTaskHandle = nullptr;
     grokwatch::FaceAnimator face;
     grokwatch::VolumeControl volume;
     grokwatch::State state = grokwatch::State::Disconnected;
