@@ -101,19 +101,30 @@ async def test_body_limit(inbox):
     assert (await post(client, base, request_id, key, body, now[0]))[0] == 200
 
 
-async def test_content_encoding_is_rejected_without_changing_the_pending_reply(inbox):
+async def test_content_encoding_is_rejected_without_decompressing_the_received_body(inbox, monkeypatch):
     now, registry, client, base, key, register = inbox
     request_id, answer = register()
-    body = reply_body(request_id)
+    body = b"x" * 10000
     compressed = gzip.compress(body)
+    assert len(compressed) < 8192 < len(body)
     headers = reply_headers(request_id, key, compressed, now[0])
     headers["Content-Encoding"] = "gzip"
+    import aiohttp.compression_utils
+    backend = aiohttp.compression_utils.ZLibBackend._zlib_backend
+    original = backend.decompressobj
+    decompressions = []
+
+    def track_decompression(*args, **kwargs):
+        decompressions.append((args, kwargs))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(backend, "decompressobj", track_decompression)
     async with client.post(base + "/v1/reply", data=compressed, headers=headers) as response:
         assert response.status == 415
+    assert decompressions == []
     assert registry.state(request_id) == "pending"
-    assert await post(client, base, request_id, key, body, now[0]) == (
-        200, {"status": "accepted"},
-    )
+    valid = reply_body(request_id)
+    assert await post(client, base, request_id, key, valid, now[0]) == (200, {"status": "accepted"})
     assert (await answer).text == "返事"
 
 

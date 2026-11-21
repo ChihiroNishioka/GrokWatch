@@ -180,9 +180,12 @@ GrokWatch/
 | 端末の簡易 VAD | RMS 500 以上を発話とみなす。発話後、連続 60 フレーム（1,200 ms）の無音で `listen_stop`。開始から 5,000 ms 発話がなければ `listen_stop` |
 | gateway の最短発話 | 300 ms（15 フレーム）未満は空の発話として扱う |
 | TTS の送出 | `tts_start` のあと、最初の最大 10 フレーム（200 ms 分）を待機なしで送り、11 フレーム目以降は送出開始から 20 ms 刻みの締切に合わせる。最後のフレームはゼロで 640 バイトに埋める |
+| ファームの WS 受信キュー | 1 本の順序付きキューに制御イベントと音声フレームを受信順で格納する。保留中の音声は最大 32 フレーム。音声が満杯なら新しい音声を捨てて数える。制御イベントを格納できない場合は接続を復旧する |
 | 端末の再生バッファ | 300 ms ためてから再生開始。300 ms 未満で `tts_end` が来たら残りを再生し、空なら完了する。96 フレームで満杯になったら最古のフレームを捨て、破棄数を数えながら接続を維持する |
 | 返事待ちの上限 | 90 秒（`GROKWATCH_REPLY_TIMEOUT_S`）。端末側の安全上限は 100 秒（Thinking に入ってから 100 秒で Error → Idle。ping / pong や Thinking の再通知は計時に影響しない） |
 | Thinking の合図 | 20 秒（BRIDGE_WEBHOOK.md §5） |
+
+音声の破棄は受信後の 2 段階で扱う。WS 受信キューが満杯なら新しい音声フレームを捨て、破棄数を記録する。受信キューから再生バッファへ移した後、再生バッファが満杯なら最古のフレームを捨て、破棄数を記録する。どちらの音声破棄でも接続を維持し、制御イベントの順序は保つ。
 
 ### 4.6 接続と再接続
 
@@ -208,7 +211,7 @@ GrokWatch/
 | バイナリフレーム | 音声 1 フレーム（ちょうど 640 バイト）。順序番号は持たない（TCP の順序に任せる） |
 | JSON の範囲 | 端末の core は平たいオブジェクト（文字列・整数・真偽値）だけを扱う最小実装。文字列は JSON のエスケープを扱う。入れ子・配列・浮動小数点は不正として扱う |
 | 未知の `type`（認証後） | 無視し、診断コードだけをログに残す |
-| 認証前の `hello` 以外 | 応答せずに 4003 で閉じる（バイナリも同じ） |
+| 認証前の `hello` 以外 | 応答せずに 4003 で閉じる（バイナリ、不正 JSON、不正 UTF-8 テキストも同じ） |
 | デバイストークン | 32 文字以上。gateway は `hmac.compare_digest` で比較 |
 
 ### 4.8 gateway・bridge
@@ -293,6 +296,8 @@ core の `AvatarStateMachine` は時刻と入力イベントを受け、次の�
 
 エラー時の `state{speaking}` と再生は Error の最低表示時間が終わるまで保留する。先に届いた音声と `tts_end` は保持する。再生が終わるまで `state{idle}` は保留する（受信から最大 2 秒。期限に達したらバッファを捨てて適用）。
 
+音声の破棄は二段階で行う（§4.5）。WS 受信キューでは容量を超えた新しい音声フレームを捨てて数え、再生バッファでは容量を超えたとき最古の音声フレームを捨てて数える。どちらも制御イベントの受信順を保ち、接続を維持する。
+
 ## 6. プロトコル v1
 
 ### 6.1 メッセージ
@@ -333,7 +338,7 @@ core の `AvatarStateMachine` は時刻と入力イベントを受け、次の�
 | 4000 | 版が違う（`auth_error{unsupported_version}` のあと） |
 | 4001 | トークン不正（`auth_error{bad_token}` のあと） |
 | 4002 | `hello` の期限切れ |
-| 4003 | 認証前のプロトコル違反（応答なし）、またはパーサーのサイズ超過（認証済みなら `error{bad_message}` のあと） |
+| 4003 | 認証前のプロトコル違反（不正 UTF-8 を含む。応答なし）、またはパーサーのサイズ超過（認証済みなら `error{bad_message}` のあと） |
 | 4004 | 新しい接続に置き換えた |
 | 4005 | 無通信の期限切れ |
 
@@ -523,6 +528,7 @@ class Bridge(Protocol):
 | E14 | core のソースが標準ライブラリと `grokwatch/` 以外のヘッダ（`esp_*`、`freertos/*`、`M5*` など）を含まない | `check_core_includes`（ctest に登録した CMake スクリプト） |
 | E15 | core が `-fno-exceptions -fno-rtti -Wall -Wextra -Werror` で警告なくビルドでき、ASan / UBSan 付きで全テストが通る | ctest の `host_test_sanitizers` 構成（CI ジョブ） |
 | E16 | TTS の 14 フレームでは再生を開始せず、15 フレームで開始する。15 未満でも `tts_end` で残りを再生し、バッファが空になると完了する | `playback_buffer_threshold_and_short_reply` |
+| E17 | 1 本の core 受信キューが制御イベントと音声を受信順に返す。最大 32 件の音声を保留し、超過した音声を数えて捨てる。制御イベントの満杯は overflow として返す | `socket_events_keep_their_receive_order`、`audio_overflow_is_counted_and_control_events_keep_their_order`、`control_overflow_is_reported` |
 
 ### F. gateway: WebSocket と認証（`gateway/tests/test_ws.py`）
 
@@ -531,7 +537,7 @@ class Bridge(Protocol):
 | F1 | 正しい `hello` で `hello_ok{v:1}` を返す | `test_hello_ok` |
 | F2 | トークン不一致で `auth_error{bad_token}` を送り 4001 で閉じる。以後 `state` を送らない | `test_bad_token_closes_4001` |
 | F3 | `v: 2` の `hello` で `auth_error{unsupported_version}` と 4000 | `test_unsupported_version_closes_4000` |
-| F4 | 認証前の `listen_start`・`ping`・バイナリ・壊れた JSON のそれぞれで、応答なしに 4003 で閉じる | `test_pre_auth_messages_close_4003`（パラメータ化） |
+| F4 | 認証前の `listen_start`・`ping`・バイナリ・壊れた JSON・不正 UTF-8 テキストのそれぞれで、応答なしに 4003 で閉じる | `test_pre_auth_messages_close_4003`、`test_pre_auth_invalid_utf8_text_closes_4003` |
 | F5 | 5 秒（テストでは短縮）以内に `hello` が来なければ 4002 で閉じる | `test_hello_timeout_closes_4002` |
 | F6 | 空または 31 文字のトークンでは起動を拒み、32 文字では起動できる | `test_startup_rejects_short_token` |
 | F7 | トークン比較が `hmac.compare_digest` 経由（比較関数を差し替えて呼ばれたことを確認） | `test_token_compare_is_constant_time` |
@@ -701,8 +707,8 @@ Phase 5 の端末確認は、対象と影響の承認を得てから進める。
 
 | 項目 | 内容 | 扱い |
 | --- | --- | --- |
-| M5Unified の C152 対応 | groki-bot の M5Unified 0.2.17 submodule（`8108bfad`）に `board_M5StopWatch` の I²C・音声・電源・RTC 分岐がある。M5GFX が画面とタッチを検出する。`patches/m5unified.patch` はスピーカーの再サンプル状態のリセットと RTC のバッファ初期化を変更する | groki-bot の `BOARD=stopwatch` は同パッチ適用の構成で ESP-IDF v5.5.4 と M5GFX 0.2.30 を使い開発機でビルド済み。GrokWatch の依存構成でのビルドと、Phase 5 での実機初期化・音声確認が残る |
-| 依存の版 | M5Unified 0.2.17 の対応は groki-bot の固定コミットで確認済み。GrokWatch で採用する配布版・パッチの要否と `esp_websocket_client` の版は未決 | 実装時に同等の対応を含む版を選び、完全一致で固定して lock をコミット |
+| M5Unified の C152 対応 | GrokWatch は M5Unified 0.2.17、M5GFX 0.2.30、`esp_websocket_client` 1.6.1 を使用する | ESP-IDF v5.5.4 と固定依存で Linux 開発機ビルドを確認済み。Phase 5 で実機の初期化・音声を確認する |
+| 依存の版 | ESP-IDF v5.5.4、M5Unified 0.2.17、M5GFX 0.2.30、`esp_websocket_client` 1.6.1 | `firmware/dependencies.lock` の固定版を使い、manifest と lock を合わせて更新する |
 | LAN の平文 WS | デバイストークンが LAN 上を平文で流れる | v1 は LAN 限定・トークン 32 文字以上。wss は Phase 6 以降に検討 |
 | ローカル設定ファイル名 | 当初案の名前が PII 検査に一致するため `sdkconfig.local.defaults` に変更 | オーナー確認 |
 | `end_conversation` と `turn` | Phase 3〜4 の v1 は BRIDGE_WEBHOOK.md §5 の会話継続を見送り、`end_conversation` の値にかかわらず再生後は Idle に戻る。`turn` は 1 | 会話の継続は Phase 6 以降に検討 |

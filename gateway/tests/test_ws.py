@@ -33,6 +33,15 @@ async def test_pre_auth_messages_close_4003(message):
             assert await Device(ws).receive() == 4003
 
 
+async def test_pre_auth_invalid_utf8_text_closes_4003():
+    from aiohttp import WSMsgType
+
+    async with gateway() as (_, _, client, base, _):
+        async with client.ws_connect(base + "/v1/ws") as ws:
+            await ws._writer.send_frame(b"\xff", WSMsgType.TEXT)
+            assert await Device(ws).receive() == 4003
+
+
 async def test_hello_timeout_closes_4002():
     async with gateway(hello_timeout=0.02) as (_, _, client, base, _):
         async with client.ws_connect(base + "/v1/ws") as ws:

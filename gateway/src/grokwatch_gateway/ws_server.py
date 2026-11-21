@@ -21,6 +21,8 @@ class DeviceSocket(web.WebSocketResponse):
             if self.authenticated:
                 await self.send_json({"type": "error", "code": "bad_message", "retryable": False})
             code, drain = 4003, False
+        elif code == WSCloseCode.INVALID_TEXT and not self.authenticated:
+            code, drain = 4003, False
         return await super().close(code=code, message=message, drain=drain)
 
 

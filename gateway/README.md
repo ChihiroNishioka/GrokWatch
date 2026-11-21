@@ -24,4 +24,4 @@ uv run --locked --all-packages python -m grokwatch_gateway
 - 実音声処理の設定は `GROKWATCH_STT=whisper_cpp`、`GROKWATCH_WHISPER_MODEL`、`GROKWATCH_TTS=macos_say` です。コマンド実体と日本語音声は `GROKWATCH_WHISPER_BIN`、`GROKWATCH_TTS_VOICE` で指定できます。
 - 設定は起動時の環境変数から読みます。本文ログは既定で無効です。`GROKWATCH_LOG_TEXT=1` はローカル調査でだけ使います。
 
-ブリッジの切り替えと Mac mini の導入予定は [ブリッジの設定](../bridge/README.md) と [セットアップ](../docs/SETUP.md) を参照してください。Mac mini への配置は Phase 6 の確認後です。
+ブリッジの切り替えと Mac mini の導入手順は [ブリッジの設定](../bridge/README.md) と [セットアップ](../docs/SETUP.md) を参照してください。`deploy/macos` には設置用ファイルを用意しています。Mac mini への配置と設定変更はオーナーの承認後に行います。

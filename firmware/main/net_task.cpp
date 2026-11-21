@@ -2,7 +2,7 @@
 #include "config_store.hpp"
 #include "grokwatch/link_supervisor.hpp"
 #include "grokwatch/protocol.hpp"
-#include "grokwatch/socket_event_policy.hpp"
+#include "grokwatch/socket_event_queue.hpp"
 
 #include "esp_app_desc.h"
 #include "esp_event.h"
@@ -63,19 +63,8 @@ bool startWifi(const Config& config, WifiEvents& events) {
            esp_wifi_set_config(WIFI_IF_STA, &sta) == ESP_OK && esp_wifi_start() == ESP_OK;
 }
 
-enum class SocketKind { Open, Closed, Text, Audio, BadText, Activity };
-struct SocketEvent {
-    SocketKind kind;
-    char* data = nullptr;
-    std::size_t size = 0;
-    std::uint64_t sequence = 0;
-};
-
 class Socket {
 public:
-    Socket(QueueHandle_t controls, QueueHandle_t audio)
-        : controls_(controls), audio_(audio) {}
-
     bool open(const Config& config) {
         esp_websocket_client_config_t ws{};
         ws.host = config.host.c_str();
@@ -118,30 +107,28 @@ public:
     }
 
     bool receive(SocketEvent& event) {
-        if (!controls_ || !audio_) return false;
-        SocketEvent control;
-        SocketEvent audio;
-        const bool hasControl = xQueuePeek(controls_, &control, 0) == pdTRUE;
-        const bool hasAudio = xQueuePeek(audio_, &audio, 0) == pdTRUE;
-        const auto lane = nextEventLane(
-            hasControl ? std::optional{control.sequence} : std::nullopt,
-            hasAudio ? std::optional{audio.sequence} : std::nullopt);
-        if (!lane) return false;
-        const auto queue = *lane == EventLane::Control ? controls_ : audio_;
-        return xQueueReceive(queue, &event, 0) == pdTRUE;
+        portENTER_CRITICAL(&eventsMux_);
+        const bool received = events_.receive(event);
+        portEXIT_CRITICAL(&eventsMux_);
+        return received;
     }
 
     bool overflow() const { return overflow_.load(); }
-    std::uint32_t droppedAudio() const { return droppedAudio_.load(std::memory_order_relaxed); }
+    std::uint32_t droppedAudio() const {
+        portENTER_CRITICAL(&eventsMux_);
+        const auto dropped = events_.droppedAudio();
+        portEXIT_CRITICAL(&eventsMux_);
+        return dropped;
+    }
 
 private:
     static void onEvent(void* context, esp_event_base_t, int32_t id, void* data) {
         auto& socket = *static_cast<Socket*>(context);
         switch (id) {
-            case WEBSOCKET_EVENT_CONNECTED: socket.post({SocketKind::Open}); break;
+            case WEBSOCKET_EVENT_CONNECTED: socket.post({SocketEventKind::Open}); break;
             case WEBSOCKET_EVENT_DISCONNECTED:
             case WEBSOCKET_EVENT_CLOSED:
-            case WEBSOCKET_EVENT_FINISH: socket.post({SocketKind::Closed}); break;
+            case WEBSOCKET_EVENT_FINISH: socket.post({SocketEventKind::Closed}); break;
             case WEBSOCKET_EVENT_DATA:
                 socket.fragment(*static_cast<const esp_websocket_event_data_t*>(data));
                 break;
@@ -150,17 +137,12 @@ private:
     }
 
     void post(SocketEvent event) {
-        const auto lane = event.kind == SocketKind::Audio ? EventLane::Audio : EventLane::Control;
-        event.sequence = sequence_.fetch_add(1, std::memory_order_relaxed);
-        const auto queue = lane == EventLane::Audio ? audio_ : controls_;
-        const bool queued = queue && xQueueSend(queue, &event, 0) == pdTRUE;
-        const auto result = policy_.posted(lane, queued);
+        portENTER_CRITICAL(&eventsMux_);
+        const auto result = events_.post(event);
+        portEXIT_CRITICAL(&eventsMux_);
         if (result != QueuePost::Accepted) {
             delete[] event.data;
-            if (result == QueuePost::DroppedAudio)
-                droppedAudio_.fetch_add(1, std::memory_order_relaxed);
-            else
-                overflow_.store(true);
+            if (result == QueuePost::Overflow) overflow_.store(true);
         }
     }
 
@@ -168,7 +150,7 @@ private:
         constexpr int text = 1;
         constexpr int binary = 2;
         if (frame.op_code >= 8) {
-            post({SocketKind::Activity});
+            post({SocketEventKind::Activity});
             return;
         }
         if (frame.payload_offset == 0 && frame.op_code != 0) {
@@ -191,12 +173,12 @@ private:
         if (frame.data_len != frame.payload_len - frame.payload_offset || !frame.fin) return;
 
         if (oversize_ || (opcode_ == binary && !validAudioFrame(used_))) {
-            post({opcode_ == text ? SocketKind::BadText : SocketKind::Activity});
+            post({opcode_ == text ? SocketEventKind::BadText : SocketEventKind::Activity});
         } else {
             auto data = new (std::nothrow) char[used_ ? used_ : 1];
             if (data) {
                 std::memcpy(data, buffer_.data(), used_);
-                post({opcode_ == text ? SocketKind::Text : SocketKind::Audio, data, used_});
+                post({opcode_ == text ? SocketEventKind::Text : SocketEventKind::Audio, data, used_});
             } else {
                 overflow_.store(true);
             }
@@ -204,13 +186,10 @@ private:
         opcode_ = 0;
     }
 
-    QueueHandle_t controls_;
-    QueueHandle_t audio_;
+    SocketEventQueue events_;
+    mutable portMUX_TYPE eventsMux_ = portMUX_INITIALIZER_UNLOCKED;
     esp_websocket_client_handle_t handle_ = nullptr;
     std::atomic<bool> overflow_{false};
-    std::atomic<std::uint64_t> sequence_{0};
-    std::atomic<std::uint32_t> droppedAudio_{0};
-    SocketEventPolicy policy_;
     std::array<char, maxTextBytes> buffer_{};
     int opcode_ = 0;
     std::size_t used_ = 0;
@@ -227,12 +206,12 @@ State decodeState(std::string_view state) {
 
 class Network {
 public:
-    Network(App& app, QueueHandle_t controls, QueueHandle_t audio, Config config)
-        : app_(app), socket_(controls, audio), config_(std::move(config)), rng_(esp_random()) {}
+    Network(App& app, Config config)
+        : app_(app), config_(std::move(config)), rng_(esp_random()) {}
 
-    void run(bool hasQueue) {
+    void run() {
         const bool configured = config_.ready();
-        const bool wifiStarted = configured && hasQueue && startWifi(config_, wifiEvents_);
+        const bool wifiStarted = configured && startWifi(config_, wifiEvents_);
         if (!configured) ESP_LOGI(tag, "設定なし");
         else if (!wifiStarted) ESP_LOGE(tag, "network_init_failed");
 
@@ -289,18 +268,18 @@ private:
             std::unique_ptr<char[]> data(event.data);
             const auto now = nowMs();
             switch (event.kind) {
-                case SocketKind::Open: linkAction(link_.opened(now), now); break;
-                case SocketKind::Closed: linkAction(link_.failed(now, rng_.unit()), now); break;
-                case SocketKind::BadText:
+                case SocketEventKind::Open: linkAction(link_.opened(now), now); break;
+                case SocketEventKind::Closed: linkAction(link_.failed(now, rng_.unit()), now); break;
+                case SocketEventKind::BadText:
                     link_.received(now);
                     badMessage();
                     break;
-                case SocketKind::Activity: link_.received(now); break;
-                case SocketKind::Text:
+                case SocketEventKind::Activity: link_.received(now); break;
+                case SocketEventKind::Text:
                     link_.received(now);
                     receiveText({data.get(), event.size}, now);
                     break;
-                case SocketKind::Audio:
+                case SocketEventKind::Audio:
                     link_.received(now);
                     if (link_.ready() && avatar_.acceptsPlayback()) {
                         PcmFrame frame;
@@ -479,9 +458,7 @@ private:
 }
 
 void netTask(void* context) {
-    const auto controls = xQueueCreate(32, sizeof(SocketEvent));
-    const auto audio = xQueueCreate(32, sizeof(SocketEvent));
-    Network network(*static_cast<App*>(context), controls, audio, readConfig());
-    network.run(controls != nullptr && audio != nullptr);
+    Network network(*static_cast<App*>(context), readConfig());
+    network.run();
 }
 }

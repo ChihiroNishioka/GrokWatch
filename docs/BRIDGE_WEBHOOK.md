@@ -10,20 +10,20 @@ StopWatch ──ws(LAN)──▶ gateway ──① POST webhook──▶ Grok Bo
     └──── 音声(TTS) ◀────┴──② POST /v1/reply（Tailscale）◀┘
 ```
 
-実際の webhook URL・送信キー・返信口のホスト名・Agent ID は、この文書にもリポジトリにも書かない。gateway は `.env` または macOS Keychain から読む。
+実際の webhook URL・送信キー・返信口のホスト名・Agent ID は、この文書にもリポジトリにも書かない。gateway は `config.py` の `read_secret` から macOS Keychain を読む。環境変数からの読み取りは、開発・テストで `GROKWATCH_ALLOW_ENV_SECRETS=1` を設定した場合だけ有効。
 
 ## 1. 設定（gateway）
 
 | 変数 | 意味 | 例（プレースホルダ） |
 | --- | --- | --- |
 | `GROKWATCH_BRIDGE` | `webhook` を選ぶ | `webhook` |
-| `GROKWATCH_WEBHOOK_URL` | ルーチンの webhook URL | Keychain 推奨 |
-| `GROKWATCH_WEBHOOK_KEY` | ルーチンの送信キー | Keychain 必須（`.env` に平文で置かない） |
+| `GROKWATCH_WEBHOOK_URL` | ルーチンの webhook URL | `grokwatch` サービスの Keychain item `GROKWATCH_WEBHOOK_URL` |
+| `GROKWATCH_WEBHOOK_KEY` | ルーチンの送信キー | `grokwatch` サービスの Keychain item `GROKWATCH_WEBHOOK_KEY` |
 | `GROKWATCH_REPLY_LISTEN` | 返信口の待ち受け | `127.0.0.1:8767` |
 | `GROKWATCH_REPLY_TIMEOUT_S` | 返事を待つ上限 | `90` |
 | `GROKWATCH_LOG_TEXT` | 発話本文をログに残すか | `0` |
 
-返信口は `127.0.0.1` だけで待ち受け、`tailscale serve` で tailnet 内だけに HTTPS で出す（Funnel は使わない）。伝書鳩が動くコンピューターを同じ tailnet に参加させる。返信口のベース URL（`https://<gateway-host>.<tailnet>.ts.net`）は、ルーチンを作るときに指示文へ書き込む。payload には URL を入れない（送信キーが漏れても、別の宛先へ返事を送らせられないようにするため）。
+返信口は `127.0.0.1` だけで待ち受け、`tailscale serve` で tailnet 内だけに HTTPS で出す（Funnel は使わない）。伝書鳩が動くコンピューターを同じ tailnet に参加させる。返信口のベース URL（`https://<mac-mini>.<tailnet>.ts.net`）は、ルーチンを作るときに指示文へ書き込む。payload には URL を入れない（送信キーが漏れても、別の宛先へ返事を送らせられないようにするため）。設定と確認方法は [Tailscale Serve 手順](../deploy/macos/tailscale-serve.md) を参照。
 
 ## 2. ① gateway → webhook（伝書鳩を起こす）
 
