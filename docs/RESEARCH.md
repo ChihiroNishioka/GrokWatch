@@ -40,7 +40,7 @@ C152 の公式仕様をまとめた調査時の記録では、ESP32-S3R8（240 M
 groki-bot が Grok Bot に話しかける二経路の接続先は、Cursor 側の Grok Bot バックエンド。xAI API は両経路の接続先に含まれない。
 
 - native voice の `gateway/scripts/gbot_voice_session_bridge.mjs` は、Grok Bot アプリのローカル保存ファイル `sand-secrets.json` を読み、アカウント一覧、アクセストークン、マシン ID と macOS Keychain を使ってログイン済みセッションを利用する。Cursor 側の内部 `GrokBotService` RPC（`WatchGrokBotTranscripts` など）をアプリ用クライアントとして呼ぶ。Gateway の README に、内部 API の利用と Grok Bot 0.71.2 での上流検証の記載あり（現行版は未検証）。
-- Gemini 音声経由では `gateway/stackchan_mcp/gbot_brain.py` の `ask_grokbot` が `gbot_http_proxy.py` を経由して第三者 CLI の `gbot` を呼ぶ。CLI がアプリのローカルセッションに依存するという調査時の記録の記録がある。CLI 本体のソースは今回の clone の範囲外。
+- Gemini 音声経由では `gateway/stackchan_mcp/gbot_brain.py` の `ask_grokbot` が `gbot_http_proxy.py` を経由して第三者 CLI の `gbot` を呼ぶ。CLI がアプリのローカルセッションに依存するという調査時の記録がある。CLI 本体のソースは今回の clone の範囲外。
 - grok-command-watch は macOS の Ghostty 上で Grok Build CLI のペイン状態を読み、端末に表示する。伝書鳩への会話経路は持たない。
 
 | 候補 | 公開・非公開 | リアルタイム性 | 必要な設定 | リスク・制約 |
