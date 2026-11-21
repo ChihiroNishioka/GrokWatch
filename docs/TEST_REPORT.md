@@ -63,7 +63,7 @@ M5Unified の `Speaker.begin()` 失敗処理と `playRaw` 失敗時の `stop()` 
 
 ## タスクスタック検査と net overflow 修正
 
-2026-11-22 JST、Linux 開発機で変更を検証した。検証対象はこの修正のコミットである。Mac、Mac mini、実機には触れていない。
+2026-11-22 JST、Linux 開発機で変更を検証した。検証対象はコミット `d76cad5` である。Mac、Mac mini、実機には触れていない。下の `7a2ddd739` は設定なし（CI と同じ）のビルドの ELF である。書き込み用には同じコミットを Wi-Fi などの設定付きで別にクリーンビルドしており、その ELF の SHA256 先頭は `99b6239c2` で、同じスタック検査を通過した。実機では、起動ログの「ELF file SHA256」の行がこの値で始まることを確かめ、停止した `91e60f887` と取り違えていないことを照合する。
 
 ### 原因と修正
 
@@ -102,3 +102,5 @@ M5Unified の `Speaker.begin()` 失敗処理と `playRaw` 失敗時の `stop()` 
 | Python 3.11.18 | 190/190 通過 | gateway、bridge、e2e、repo の pytest |
 
 実機の high-water 値は未確認である。GREEN の実機条件は起動から10分、再接続と1回以上の JSON・音声送受信の後、全タスクで空き 1,024 B 以上、stack overflow と再起動がないこととする。60秒ごとの診断ログで確認する。
+
+実機での見方: シリアルモニタで10分以上ログを取り、`diag stack free` を含む行を探す。値は各タスクの起動後の最小残量（bytes、uxTaskGetStackHighWaterMark）で、行を追うごとに小さい側へしか動かない。起動直後の1行目では判定しない。Wi-Fi の再接続と1回以上の会話（JSON の受信、音声の送受信）を終えたあとに出た次の行で、net（枠 12,288 B）、audio（6,144 B）、render（6,144 B）、buttons（3,072 B）、touch（4,096 B）のすべてが 1,024 以上であれば合格とする。その間に stack overflow のログと再起動がないことも確かめる。
