@@ -43,12 +43,14 @@ public:
     bool pop(PcmFrame& frame);
     void end();
     bool complete() const;
+    std::size_t droppedFrames() const { return dropped_; }
 
 private:
     // Covers the initial burst plus the Error hold before playback begins.
     std::array<PcmFrame, 96> frames_;
     std::size_t read_ = 0;
     std::size_t size_ = 0;
+    std::size_t dropped_ = 0;
     bool active_ = false;
     bool started_ = false;
     bool ended_ = false;

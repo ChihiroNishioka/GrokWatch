@@ -43,6 +43,7 @@ async def test_thinking_before_stt_and_no_speech():
 @pytest.mark.parametrize("scenario, code, expected", [
     ("stt", "stt_failed", "うまく聞き取れなかったみたい"),
     ("bridge", "bridge_unavailable", "いま伝書鳩につながらないみたい"),
+    ("empty_ok", "reply_error", "ごめん、いまは答えられないみたい"),
     ("error", "reply_error", "ごめん、いまは答えられないみたい"),
     ("error_text", "reply_error", "試験返事"),
     ("declined", None, "試験返事"),
@@ -64,7 +65,7 @@ async def test_error_and_declined_audio(scenario, code, expected):
     options = dict(bridge_name="mock", mock_mode={"bridge": "fail"}.get(scenario, "post_reply"),
                    mock_status="error" if scenario.startswith("error") else
                    "declined" if scenario == "declined" else "ok",
-                   mock_text="" if scenario == "error" else "試験返事",
+                   mock_text="" if scenario in {"error", "empty_ok"} else "試験返事",
                    mock_end=True)
     async with gateway(stt=stt, tts=tts, **options) as (app, config, client, base, _):
         async with connected(client, base, config) as device:
@@ -98,14 +99,18 @@ async def test_webhook_timeout_uses_created_at():
     async with serve(fake) as hook_url:
         import secrets
         async with gateway(clock=lambda: now[0], reply_timeout=1, webhook_url=hook_url,
+                           webhook_allow_loopback_http=True,
                            webhook_key=secrets.token_urlsafe(32)) as (app, config, client, base, _):
             async with connected(client, base, config) as device:
                 await device.start()
                 await device.stop()
                 await triggered.wait()
                 now[0] += 1
-                release.set()
-                messages = await device.idle()
+                try:
+                    async with asyncio.timeout(0.4):
+                        messages = await device.idle()
+                finally:
+                    release.set()
                 assert messages[1]["code"] == "bridge_timeout"
                 assert audio(messages)
                 assert app.registry.state(received[0]["request_id"]) == "expired"
@@ -175,16 +180,27 @@ async def test_cancel_during_speaking_stops_audio():
             assert app.registry.state(app.bridge.last_request.request_id) == "answered"
 
 
-async def test_tts_framing_and_pacing():
-    pauses = []
+async def test_tts_framing_and_pacing(monkeypatch):
+    from aiohttp.web import WebSocketResponse
+
+    sent = []
+    now = [100.0]
+    original_send = WebSocketResponse.send_bytes
+
+    async def send_bytes(ws, data):
+        sent.append(now[0])
+        now[0] += 0.001
+        await original_send(ws, data)
+
+    monkeypatch.setattr(WebSocketResponse, "send_bytes", send_bytes)
 
     async def tts(text):
         return b"x" * (11 * 640 + 2)
 
     async def sleep(seconds):
-        pauses.append(seconds)
+        now[0] += seconds
 
-    async with gateway(tts=tts, sleep=sleep, bridge_name="mock") as (_, config, client, base, _):
+    async with gateway(tts=tts, sleep=sleep, pace_clock=lambda: now[0], bridge_name="mock") as (_, config, client, base, _):
         async with connected(client, base, config) as device:
             await device.start()
             await device.stop()
@@ -193,7 +209,7 @@ async def test_tts_framing_and_pacing():
                                     {"type": "tts_start", "sample_rate": 16000}]
             assert all(len(m) == 640 for m in messages[2:-2])
             assert audio(messages) == b"x" * (11 * 640 + 2) + b"\0" * 638
-            assert pauses == [0.02, 0.02]
+            assert sent == pytest.approx([100 + i * 0.001 for i in range(10)] + [100.02, 100.04])
             assert messages[-2] == {"type": "tts_end"}
 
 

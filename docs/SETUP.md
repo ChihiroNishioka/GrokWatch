@@ -21,10 +21,9 @@ uv run --locked --all-packages --python 3.13 pytest gateway/tests bridge/tests t
 
 ## C152 向けファームウェアをビルドする
 
-ESP-IDF v5.5.4 と ESP32-S3 ツールチェーンを用意します。ESP-IDF のチェックアウトを `~/esp/esp-idf-v5.5.4` に置いた場合の手順です。既に `esp32s3` を設定した作業ツリーでは `idf.py set-target esp32s3` を省略できます。
+ESP-IDF v5.5.4 と ESP32-S3 ツールチェーンを用意します。ESP-IDF v5.5.4 の `export.sh` を読み込んでから実行します。既に `esp32s3` を設定した作業ツリーでは `idf.py set-target esp32s3` を省略できます。
 
 ```bash
-source ~/esp/esp-idf-v5.5.4/export.sh
 (
   cd firmware
   idf.py set-target esp32s3
@@ -34,7 +33,7 @@ python scripts/check_firmware_build.py
 git diff --exit-code -- firmware/dependencies.lock
 ```
 
-生成したアプリは `firmware/build/grokwatch.bin` です。秘密を含まないビルドには既定の `sdkconfig.defaults` を使います。個別設定が必要なビルドでは、Git 管理外の `firmware/sdkconfig.local.defaults` に設定します。既存の `firmware/sdkconfig` には前回の設定が残るため、defaults を変えた場合はビルド前に設定を生成し直します。端末への書き込みは [Phase 5 の手順](FLASHING.md) を参照してください。
+生成したアプリは `firmware/build/grokwatch.bin` です。秘密を含まないビルドには既定の `sdkconfig.defaults` を使います。個別設定が必要なビルドでは、Git 管理外の `firmware/sdkconfig.local.defaults` に設定します。既存の `firmware/sdkconfig` には前回の設定が残るため、defaults を変えた場合はビルド前に設定を生成し直します。ファームは NVS を使わず、読み取りも書き込みも行いません。Wi-Fi と PHY の NVS 保存は無効です。端末への書き込みは [Phase 5 の手順](FLASHING.md) を参照してください。
 
 ## Mac mini の導入物
 

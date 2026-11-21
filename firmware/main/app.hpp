@@ -16,7 +16,7 @@ struct App {
     App(std::uint32_t seed, grokwatch::Millis now) : face(seed, now) {}
 
     SemaphoreHandle_t mutex = nullptr;
-    QueueHandle_t longPresses = nullptr;
+    QueueHandle_t gestures = nullptr;
     QueueHandle_t captured = nullptr;
     grokwatch::FaceAnimator face;
     grokwatch::State state = grokwatch::State::Disconnected;

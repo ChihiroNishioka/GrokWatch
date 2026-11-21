@@ -10,6 +10,7 @@ bool initBoard() {
     config.external_display_value = 0;
     config.output_power = false;
     config.internal_imu = false;
+    config.external_imu = false;
     config.internal_rtc = false;
     config.internal_mic = true;
     config.internal_spk = true;

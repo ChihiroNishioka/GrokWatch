@@ -1,16 +1,59 @@
 import asyncio
+from contextlib import asynccontextmanager
 import secrets
 
 import pytest
 
 from fake_device import reconnect
-from support import Device, connected, eventually, gateway, post
+from support import Device, connected, eventually, gateway as make_gateway, post
 
 
 @pytest.fixture(autouse=True)
 async def deadline():
     async with asyncio.timeout(10):
         yield
+
+
+@pytest.fixture
+def gateway(monkeypatch, capsys):
+    from aiohttp import ClientSession
+    from grokwatch_gateway.registry import Registry
+
+    sensitive = set()
+    open_request = Registry.open
+    send_post = ClientSession.post
+    hello = Device.hello
+
+    def track_request(registry, request_id, token, expires_at):
+        sensitive.add(token)
+        return open_request(registry, request_id, token, expires_at)
+
+    def track_post(client, url, **kwargs):
+        sensitive.add(str(url))
+        if signature := kwargs.get("headers", {}).get("X-GrokWatch-Signature"):
+            sensitive.update((signature, signature.removeprefix("sha256=")))
+        return send_post(client, url, **kwargs)
+
+    async def track_hello(device, token, version=1):
+        sensitive.add(token)
+        await hello(device, token, version)
+
+    @asynccontextmanager
+    async def track_gateway(**kwargs):
+        kwargs.setdefault("webhook_key", secrets.token_urlsafe(32))
+        async with make_gateway(**kwargs) as instances:
+            _, config, _, ws_base, reply_base = instances
+            sensitive.update((config.device_token, config.webhook_key, ws_base, reply_base,
+                              ws_base.replace("http://", "ws://", 1)))
+            yield instances
+
+    monkeypatch.setattr(Registry, "open", track_request)
+    monkeypatch.setattr(ClientSession, "post", track_post)
+    monkeypatch.setattr(Device, "hello", track_hello)
+    yield track_gateway
+    captured = capsys.readouterr()
+    assert sensitive
+    assert not any(value in captured.out or value in captured.err for value in sensitive)
 
 
 @pytest.mark.parametrize("mode, kwargs, code, expected_states", [
@@ -23,7 +66,7 @@ async def deadline():
     ("post_reply", {"mock_variant": "tampered", "reply_timeout": 0.3},
      "bridge_timeout", ["error", "speaking", "idle"]),
 ])
-async def test_roundtrip_modes(mode, kwargs, code, expected_states, capsys):
+async def test_roundtrip_modes(gateway, mode, kwargs, code, expected_states):
     from grokwatch_gateway.audio import MockTts
     from grokwatch_gateway.canned import CANNED_TEXT
 
@@ -57,13 +100,9 @@ async def test_roundtrip_modes(mode, kwargs, code, expected_states, capsys):
                 assert app.bridge.post_results == [(401, None)]
             elif kwargs.get("mock_variant") == "duplicate":
                 assert app.bridge.post_results == [(200, "accepted"), (200, "duplicate")]
-            logs = capsys.readouterr().out
-            assert config.device_token not in logs
-            if request:
-                assert request.reply_token not in logs
 
 
-async def test_delayed_reply_stays_thinking():
+async def test_delayed_reply_stays_thinking(gateway):
     async with gateway(bridge_name="mock", mock_mode="post_reply", mock_delay=3) as (
         _, config, client, base, _,
     ):
@@ -77,7 +116,7 @@ async def test_delayed_reply_stays_thinking():
             await device.idle()
 
 
-async def test_cancel_then_late_reply_410():
+async def test_cancel_then_late_reply_410(gateway):
     async with gateway(bridge_name="mock", mock_mode="silent") as (app, config, client, base, reply_base):
         async with connected(client, base, config) as device:
             await device.start()
@@ -91,7 +130,7 @@ async def test_cancel_then_late_reply_410():
                     await device.receive()
 
 
-async def test_cancel_during_speaking_roundtrip():
+async def test_cancel_during_speaking_roundtrip(gateway):
     async with gateway(bridge_name="mock", mock_mode="post_reply", mock_text="音声" * 70) as (
         _, config, client, base, _,
     ):
@@ -107,7 +146,7 @@ async def test_cancel_during_speaking_roundtrip():
 
 
 @pytest.mark.parametrize("auth", [True, False])
-async def test_unauthenticated_device(auth):
+async def test_unauthenticated_device(gateway, auth):
     async with gateway() as (_, _, client, base, _):
         async with client.ws_connect(base + "/v1/ws") as ws:
             device = Device(ws)
@@ -119,7 +158,7 @@ async def test_unauthenticated_device(auth):
             assert await device.receive() == (4001 if auth else 4003)
 
 
-async def test_gateway_restart_reconnect():
+async def test_gateway_restart_reconnect(gateway):
     from aiohttp import ClientSession
 
     async with gateway(bridge_name="mock", mock_mode="silent") as (app, config, client, base, _):
@@ -159,7 +198,7 @@ async def test_gateway_restart_reconnect():
     assert delays[:3] == [0.01, 0.02, 0.04]
 
 
-async def test_device_drop_mid_turn_and_health():
+async def test_device_drop_mid_turn_and_health(gateway):
     async with gateway(bridge_name="mock", mock_mode="post_reply", mock_delay=0.05) as (
         app, config, client, base, reply_base,
     ):

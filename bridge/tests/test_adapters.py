@@ -95,7 +95,7 @@ async def test_webhook_request_shape_limits_reply_and_ids():
     async with serve(app) as url:
         texts = ["a" * 1001, "𠮷\x01" * 600]
         for i, (text, timeout) in enumerate(zip(texts, [90, 35]), 1):
-            adapter = Webhook(inbox, url, key, **({} if timeout == 90 else {"reply_timeout": timeout}))
+            adapter = Webhook(inbox, url, key, allow_loopback_http=True, **({} if timeout == 90 else {"reply_timeout": timeout}))
             session = Session(f"s-20261121-{i:03}")
             assert await collect(adapter, text, session) == [ReplyChunk("届いた")]
             sent = seen[-1]
@@ -129,17 +129,17 @@ async def test_webhook_failures_send_once(status):
     app.router.add_post("/{tail:.*}", handle)
     inbox = Inbox()
     async with serve(app) as url:
-        assert Webhook(inbox, url, "").timeout == 8
+        assert Webhook(inbox, url, "", allow_loopback_http=True).timeout == 8
         if status != "refused":
             try:
                 with pytest.raises(BridgeUnavailable):
-                    await collect(Webhook(inbox, url, secrets.token_urlsafe(32), timeout=0.05))
+                    await collect(Webhook(inbox, url, secrets.token_urlsafe(32), allow_loopback_http=True, timeout=0.05))
             finally:
                 release.set()
             assert calls == ["/"]
     if status == "refused":
         with pytest.raises(BridgeUnavailable):
-            await collect(Webhook(inbox, url, secrets.token_urlsafe(32)))
+            await collect(Webhook(inbox, url, secrets.token_urlsafe(32), allow_loopback_http=True))
         assert not calls
     assert inbox.cancelled == inbox.opened.keys()
 
@@ -155,7 +155,7 @@ async def test_webhook_cancel():
     app.router.add_post("/", handle)
     inbox = Inbox()
     async with serve(app) as url:
-        adapter = Webhook(inbox, url, secrets.token_urlsafe(32))
+        adapter = Webhook(inbox, url, secrets.token_urlsafe(32), allow_loopback_http=True)
         session = Session("s-20261121-001")
         task = asyncio.create_task(collect(adapter, session=session))
         await eventually(lambda: inbox.opened)
@@ -247,3 +247,13 @@ def test_signing_matches_reference():
     assert signature(key, "10000", body) == reply_headers(
         request_id, key, body, 10000,
     )["X-GrokWatch-Signature"]
+
+
+@pytest.mark.parametrize("scheme", ["http", "file", "ws"])
+def test_webhook_rejects_non_https(scheme):
+    from grokwatch_bridge.webhook import Webhook
+
+    for allow_loopback in (False, True):
+        with pytest.raises(ValueError):
+            Webhook(Inbox(), scheme + "://example.invalid/", secrets.token_urlsafe(32),
+                    allow_loopback_http=allow_loopback)

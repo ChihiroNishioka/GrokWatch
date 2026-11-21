@@ -66,10 +66,10 @@ scan_files() {
             failed=1
         fi
         case "$path" in
-            LICENSE|.gitignore|config/.env.example) ;;
+            LICENSE|.gitignore|config/.env.example|uv.lock|firmware/dependencies.lock|firmware/partitions.csv|firmware/sdkconfig.defaults) ;;
             *)
                 case $(printf '%s' "$path" | tr '[:upper:]' '[:lower:]') in
-                    *.md|*.sh|*.yml|*.yaml|*.toml|*.py|*.cpp|*.hpp|*.h|*.c|*/cmakelists.txt|cmakelists.txt|*.cmake|*.csv|*.lock|*.projbuild|*.defaults|*.json) ;;
+                    *.md|*.sh|*.yml|*.yaml|*.toml|*.py|*.cpp|*.hpp|*/cmakelists.txt|cmakelists.txt|*.cmake|*.projbuild) ;;
                     *)
                         printf '許可リストにないファイル形式です。 %s\n' "$label" >&2
                         failed=1

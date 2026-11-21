@@ -2,16 +2,20 @@ import asyncio
 from collections.abc import Mapping
 import json
 import time
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 import aiohttp
 
-from .contract import BridgeCancelled, BridgeUnavailable, Health, Request, wait_for_reply
+from .contract import BridgeCancelled, BridgeTimeout, BridgeUnavailable, Health, Request, wait_until_deadline
 
 
 class Webhook:
     name = "webhook"
 
-    def __init__(self, inbox, url, key, *, reply_timeout=90, timeout=8, clock=time.time):
+    def __init__(self, inbox, url, key, *, reply_timeout=90, timeout=8, clock=time.time, allow_loopback_http=False):
+        if url:
+            validate_url(url, allow_loopback_http)
         self.inbox = inbox
         self.url = url
         self.key = key
@@ -27,7 +31,8 @@ class Webhook:
         if active := self._active.get(session):
             request, sending = active
             self.inbox.cancel(request.request_id)
-            sending.cancel()
+            if not sending.done() and not sending.cancelling():
+                sending.cancel()
 
     async def send_utterance(self, text, session):
         if not (await self.health()).available:
@@ -38,17 +43,20 @@ class Webhook:
         self._active[session] = request, sending
         try:
             try:
-                await sending
+                await wait_until_deadline(sending, request, self.clock)
             except asyncio.CancelledError:
                 if asyncio.current_task().cancelling():
                     raise
                 raise BridgeCancelled() from None
-            reply = await wait_for_reply(answer, request, self.clock)
-        except (BridgeUnavailable, asyncio.CancelledError):
+            reply = await wait_until_deadline(answer, request, self.clock)
+        except (BridgeUnavailable, BridgeTimeout, asyncio.CancelledError):
             self.inbox.cancel(request.request_id)
             raise
         finally:
             self._active.pop(session, None)
+            if not sending.done() and not sending.cancelling():
+                sending.cancel()
+            await asyncio.gather(sending, return_exceptions=True)
             if answer.done() and not answer.cancelled():
                 answer.exception()
         yield reply
@@ -60,10 +68,25 @@ class Webhook:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as client:
                 async with client.post(self.url, headers=headers, data=encode_body(request.payload(text[:1000])),
                                        allow_redirects=False) as response:
+                    if self.clock() >= request.expires_at:
+                        raise BridgeTimeout()
                     if response.status != 200:
                         raise BridgeUnavailable()
         except (aiohttp.ClientError, TimeoutError, ValueError):
             raise BridgeUnavailable() from None
+
+
+def validate_url(url, allow_loopback_http):
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if host and parsed.scheme == "https":
+            return
+        if host and parsed.scheme == "http" and allow_loopback_http and ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass
+    raise ValueError("Webhook requires an HTTPS URL")
 
 
 def encode_body(payload: Mapping) -> bytes:

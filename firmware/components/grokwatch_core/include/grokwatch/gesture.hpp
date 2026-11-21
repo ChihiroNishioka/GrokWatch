@@ -20,6 +20,7 @@ struct GestureEvent {
 
 class GestureDetector {
 public:
+    GestureEvent sample(Millis now, std::optional<unsigned> contacts, Point raw, Point screen);
     GestureEvent update(Millis now, bool pressed, std::optional<Point> point);
 
 private:

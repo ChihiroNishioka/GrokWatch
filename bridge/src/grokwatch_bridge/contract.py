@@ -75,11 +75,11 @@ class Request:
                     max_chars=120)
 
 
-async def wait_for_reply(answer, request, clock):
-    if (remaining := request.expires_at - clock()) <= 0:
-        raise BridgeTimeout()
-    try:
-        async with asyncio.timeout(remaining):
-            return await asyncio.shield(answer)
-    except TimeoutError:
-        raise BridgeTimeout() from None
+async def wait_until_deadline(answer, request, clock):
+    while not answer.done():
+        remaining = request.expires_at - clock()
+        if remaining <= 0:
+            raise BridgeTimeout()
+        # Use the same clock as the inbox, including when it changes during I/O.
+        await asyncio.wait((answer,), timeout=min(remaining, 0.05))
+    return answer.result()

@@ -17,9 +17,9 @@ extern "C" void app_main() {
 
     static App app(esp_random(), nowMs());
     app.mutex = xSemaphoreCreateMutex();
-    app.longPresses = xQueueCreate(4, sizeof(grokwatch::Millis));
+    app.gestures = xQueueCreate(16, sizeof(grokwatch::GestureEvent));
     app.captured = xQueueCreate(12, sizeof(Captured));
-    if (!app.mutex || !app.longPresses || !app.captured) {
+    if (!app.mutex || !app.gestures || !app.captured) {
         ESP_LOGE("grokwatch", "allocation_failed");
         return;
     }

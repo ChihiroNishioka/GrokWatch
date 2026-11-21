@@ -106,8 +106,9 @@ async def test_oversized_text_frame():
             message = prefix + "x" * (4096 - len(prefix) - 2) + '"}'
             await device.ws.send_str(message)
             assert (await device.receive())["type"] == "pong"
-            await device.ws.send_str(message + " ")
-            assert (await device.receive())["code"] == "bad_message"
+            for size in (4097, 4159):
+                await device.ws.send_str(message.ljust(size))
+                assert (await device.receive())["code"] == "bad_message"
 
 
 async def test_frames_outside_listening_and_bad_frame_once():
@@ -153,3 +154,112 @@ async def test_listen_max_750_frames():
             await device.send("listen_stop")
             await device.idle()
             assert captured == [750 * 640]
+
+
+async def test_replace_while_old_connection_disconnects_during_cleanup():
+    started = asyncio.Event()
+    cleaning = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def stt(pcm):
+        started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            cleaning.set()
+            await release.wait()
+            finished.set()
+
+    async with gateway(stt=stt) as (_, config, client, base, _):
+        async with connected(client, base, config) as first:
+            await first.start()
+            await first.stop()
+            await started.wait()
+            async with client.ws_connect(base + "/v1/ws") as replacement:
+                second = Device(replacement)
+                await second.hello(config.device_token)
+                try:
+                    async with asyncio.timeout(1):
+                        await cleaning.wait()
+                        await first.ws.close()
+                        # Let the old connection process the close while STT is still cleaning up.
+                        await asyncio.sleep(0.02)
+                        release.set()
+                        assert await second.receive() == {"type": "hello_ok", "v": 1}
+                        assert finished.is_set()
+                finally:
+                    release.set()
+
+
+@pytest.mark.parametrize("authenticated", [False, True])
+async def test_parser_oversize_uses_v1_error_path(authenticated):
+    async with gateway() as (_, config, client, base, _):
+        async with client.ws_connect(base + "/v1/ws") as ws:
+            device = Device(ws)
+            if authenticated:
+                await device.hello(config.device_token)
+                assert (await device.receive())["type"] == "hello_ok"
+            await ws.send_bytes(b"x" * 4_160)
+            if authenticated:
+                assert (await device.receive())["code"] == "bad_message"
+            assert await device.receive() == 4003
+
+
+async def test_ws_admission_limit_includes_pending_hello():
+    from contextlib import AsyncExitStack
+    from aiohttp import WSServerHandshakeError
+
+    async with gateway() as (_, config, client, base, _):
+        async with AsyncExitStack() as sockets:
+            for _ in range(4):
+                await sockets.enter_async_context(client.ws_connect(base + "/v1/ws"))
+            with pytest.raises(WSServerHandshakeError) as error:
+                await client.ws_connect(base + "/v1/ws")
+            assert error.value.status == 503
+        async with connected(client, base, config):
+            pass
+
+
+async def test_cancel_ack_echoes_session_number():
+    async with gateway() as (_, config, client, base, _):
+        async with connected(client, base, config) as device:
+            await device.send("listen_start", session=1)
+            assert (await device.receive())["state"] == "listening"
+            await device.send("cancel", session=1)
+            await device.send("listen_start", session=2)
+            assert await device.receive() == {"type": "state", "state": "idle", "session": 1}
+            assert (await device.receive())["state"] == "listening"
+
+
+async def test_cancel_waiter_propagates_its_own_cancellation():
+    running = asyncio.Event()
+    cleaning = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def stt(pcm):
+        running.set()
+        try:
+            await asyncio.Future()
+        finally:
+            cleaning.set()
+            await release.wait()
+            finished.set()
+
+    async with gateway(stt=stt) as (app, config, client, base, _):
+        async with connected(client, base, config) as device:
+            server_session = app.devices.active
+            await device.start()
+            await device.stop()
+            await running.wait()
+            waiter = asyncio.create_task(server_session.cancel())
+            try:
+                await cleaning.wait()
+                waiter.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await waiter
+            finally:
+                release.set()
+            await server_session.cancel()
+            assert finished.is_set()

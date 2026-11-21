@@ -1,6 +1,12 @@
+import asyncio
 import re
+import secrets
+from urllib.error import HTTPError
 
-from pytest import fixture
+from aiohttp import web
+import pytest
+
+from support import serve
 
 
 REQUIRED_STRINGS = (
@@ -8,7 +14,7 @@ REQUIRED_STRINGS = (
 )
 
 
-@fixture
+@pytest.fixture
 def firmware_sources(repo_root):
     firmware = repo_root / "firmware"
     sources = [p for base in ("main", "components") for p in (firmware / base).rglob("*")
@@ -28,17 +34,40 @@ def test_no_secret_defaults(repo_root):
         assert all(value == '""' for value in re.findall(rf"^CONFIG_{key}=(.*)$", sdkconfig, re.MULTILINE)), key
 
 
-def test_no_flash_erase_calls(firmware_sources):
-    writes = re.compile(r"\b(?:\w*flash_\w*erase\w*|esp_partition_erase_range|nvs_(?:set_\w+|erase_\w+|commit))\s*\(")
-    opens = []
+def test_no_nvs_or_flash_mutation_calls(firmware_sources):
+    prohibited = re.compile(
+        r"\b(?:nvs_\w+|\w*flash_\w*erase\w*|"
+        r"(?:esp_partition|spi_flash|esp_flash)_(?:erase|write)\w*)\s*\("
+    )
     for path, source in firmware_sources.items():
-        assert not writes.search(source), path
-        opens.extend(re.findall(r"\bnvs_open(?:_from_partition)?\s*\(([^;]*)\)", source))
-    assert opens
-    assert all(re.search(r",\s*NVS_READONLY\s*,", args) for args in opens)
+        assert not prohibited.search(source), path
 
 
 def test_no_secret_logging(firmware_sources):
     for path, source in firmware_sources.items():
         for call in re.findall(r"\bESP_LOG[A-Z_]+\s*\((.*?);", source, re.DOTALL):
             assert not re.search(r"\b\w*(?:password|token|ssid)\w*\b", call, re.IGNORECASE), path
+
+
+async def test_documented_reply_sender_rejects_redirect(repo_root):
+    namespace = {}
+    document = (repo_root / "docs/BRIDGE_WEBHOOK.md").read_text()
+    script = document.split("```python\n", 1)[1].split("```", 1)[0]
+    exec(script, namespace)
+    arrivals = []
+
+    async def target(request):
+        arrivals.append(request.method)
+        return web.Response()
+
+    async def redirect(request):
+        raise web.HTTPFound("/target")
+
+    app = web.Application()
+    app.router.add_post("/v1/reply", redirect)
+    app.router.add_route("*", "/target", target)
+    async with serve(app) as base:
+        with pytest.raises(HTTPError) as error:
+            await asyncio.to_thread(namespace["send_reply"], base, "fixture", secrets.token_urlsafe(32), "返事")
+        assert error.value.code == 302
+    assert not arrivals

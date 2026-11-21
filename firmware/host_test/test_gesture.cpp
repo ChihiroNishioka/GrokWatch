@@ -54,3 +54,17 @@ TEST(drag_boundary_12px) {
     CHECK_EQ(gesture.update(10, true, Point{0, 12}).kind, Gesture::None);
     CHECK_EQ(gesture.update(20, true, Point{1, 12}).kind, Gesture::DragStart);
 }
+
+TEST(drag_keeps_last_sample_when_coordinates_are_missing) {
+    GestureDetector detector;
+    detector.sample(0, 1, {1, 1}, {10, 10});
+    CHECK_EQ(detector.sample(20, 1, {2, 2}, {30, 30}).kind, Gesture::DragStart);
+    for (const auto contacts : {std::optional<unsigned>{}, std::optional<unsigned>{1}}) {
+        const auto missing = detector.sample(30, contacts, {0, 0}, {0, 0});
+        CHECK_EQ(missing.kind, Gesture::DragMove);
+        CHECK(missing.point);
+        CHECK_EQ(missing.point->x, 30);
+        CHECK_EQ(missing.point->y, 30);
+    }
+    CHECK_EQ(detector.sample(40, 0, {0, 0}, {0, 0}).kind, Gesture::DragEnd);
+}

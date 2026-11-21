@@ -30,9 +30,11 @@ class Config:
     reply_timeout: float = 90
     hello_timeout: float = 5
     idle_timeout: float = 30
+    ws_connection_limit: int = 4
     retention: float = 600
     bridge_name: str = "webhook"
     webhook_url: str = field(default="", repr=False)
+    webhook_allow_loopback_http: bool = False
     webhook_key: str = field(default="", repr=False)
     agent_id: str = field(default="", repr=False)
     gbot_bin: str = "gbot"
@@ -57,6 +59,8 @@ class Config:
     def __post_init__(self):
         if len(self.device_token) < 32:
             raise ValueError("A device token of at least 32 characters is required")
+        if self.ws_connection_limit < 1:
+            raise ValueError("WebSocket connection limit must be positive")
         if self.reply_host != LOOPBACK:
             raise ValueError("The reply listener requires IPv4 loopback")
         if any(not 0 <= port <= 65535 for port in (self.gateway_port, self.reply_port)):
@@ -96,7 +100,9 @@ class Config:
             device_token=read_secret(env, "GROKWATCH_DEVICE_TOKEN"),
             gateway_host=get("GATEWAY_HOST"), gateway_port=number("GATEWAY_PORT", "8765", int),
             reply_host=reply_host, reply_port=int(reply_port), reply_timeout=number("REPLY_TIMEOUT_S", "90"),
+            ws_connection_limit=number("WS_CONNECTION_LIMIT", "4", int),
             bridge_name=bridge_name,
+            webhook_allow_loopback_http=get("WEBHOOK_ALLOW_LOOPBACK_HTTP") == "1",
             webhook_url=read_secret(env, "GROKWATCH_WEBHOOK_URL") if bridge_name == "webhook" else "",
             webhook_key=read_secret(env, "GROKWATCH_WEBHOOK_KEY") if bridge_name == "webhook" else "",
             agent_id=get("AGENT_ID"), gbot_bin=get("GBOT_BIN", "gbot"), gbot_args=get("GBOT_ARGS", "[]"),
@@ -114,6 +120,7 @@ class Config:
         return {
             "GROKWATCH_BRIDGE": self.bridge_name, "GROKWATCH_REPLY_TIMEOUT_S": str(self.reply_timeout),
             "GROKWATCH_WEBHOOK_URL": self.webhook_url, "GROKWATCH_WEBHOOK_KEY": self.webhook_key,
+            "GROKWATCH_WEBHOOK_ALLOW_LOOPBACK_HTTP": str(int(self.webhook_allow_loopback_http)),
             "GROKWATCH_GBOT_BIN": self.gbot_bin, "GROKWATCH_GBOT_ARGS": self.gbot_args,
             "GROKWATCH_AGENT_ID": self.agent_id, "GROKWATCH_MOCK_MODE": self.mock_mode,
             "GROKWATCH_MOCK_REPLY": self.mock_text, "GROKWATCH_MOCK_DELAY_S": str(self.mock_delay),

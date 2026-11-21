@@ -58,6 +58,7 @@ Effects AvatarStateMachine::longPress(Millis now) {
             vad_ = {};
             capturedFrames_ = 0;
             cancelled_ = false;
+            ++sessionNumber_;
             enter(State::Listening, now);
             auto effects = send(Command::ListenStart);
             effects.startCapture = true;
@@ -81,7 +82,12 @@ Effects AvatarStateMachine::longPress(Millis now) {
     return {};
 }
 
-Effects AvatarStateMachine::remote(State state, Millis now) {
+Effects AvatarStateMachine::touch(const GestureEvent& gesture, Millis now) {
+    return gesture.kind == Gesture::LongPress ? longPress(now) : Effects{};
+}
+
+Effects AvatarStateMachine::remote(State state, Millis now, std::optional<std::int64_t> session) {
+    if (session && *session != sessionNumber_) return {};
     if (state_ == State::Disconnected || state == State::Disconnected) return {};
     if (cancelled_ && state != State::Idle) return {};
     if (state == State::Error) return enterError(now);

@@ -34,7 +34,7 @@ class Gateway:
             self.bridge.reply_url = url
 
 
-def create_gateway(config, *, stt=None, tts=None, bridge=None, clock=time.time, sleep=asyncio.sleep):
+def create_gateway(config, *, stt=None, tts=None, bridge=None, clock=time.time, sleep=asyncio.sleep, pace_clock=time.monotonic):
     registry = Registry(clock, config.retention)
     log = EventLog(log_text=config.log_text, tokens=registry.tokens, redactions=(
         config.device_token, config.webhook_key, config.webhook_url, config.agent_id,
@@ -51,7 +51,7 @@ def create_gateway(config, *, stt=None, tts=None, bridge=None, clock=time.time, 
         tts = MacosSay(config.tts_voice) if config.tts_name == "macos_say" else MockTts()
 
     canned = {}
-    devices = WebSocketServer(config, stt, tts, bridge, canned, log, clock, sleep)
+    devices = WebSocketServer(config, stt, tts, bridge, canned, log, clock, sleep, pace_clock)
     ws_app = web.Application()
     reply_app = web.Application()
     gateway = Gateway(ws_app, reply_app, devices, registry, bridge)

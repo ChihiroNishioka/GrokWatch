@@ -230,6 +230,9 @@ bool hasFields(const Message& message) {
         }
         case Type::State: {
             const auto state = message.string("state");
+            if (find(message.fields, "session") && message.integer("session").value_or(0) <= 0) {
+                return false;
+            }
             return state == "idle" || state == "listening" || state == "thinking"
                 || state == "speaking" || state == "error";
         }
@@ -241,10 +244,11 @@ bool hasFields(const Message& message) {
         case Type::Ping:
         case Type::Pong:
             return message.integer("t").has_value();
-        case Type::Unknown:
         case Type::ListenStart:
-        case Type::ListenStop:
         case Type::Cancel:
+            return !find(message.fields, "session") || message.integer("session").value_or(0) > 0;
+        case Type::Unknown:
+        case Type::ListenStop:
         case Type::TtsEnd:
             return true;
     }

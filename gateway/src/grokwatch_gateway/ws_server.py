@@ -3,11 +3,25 @@ from contextlib import suppress
 from datetime import datetime, timezone
 import hmac
 
-from aiohttp import WSMsgType, web
+from aiohttp import WSCloseCode, WSMsgType, web
 from grokwatch_bridge.contract import Session
 
 from .conversation import Conversation
-from .protocol import FRAME_BYTES, MAX_FRAMES, decode
+from .protocol import FRAME_BYTES, MAX_FRAMES, MAX_TEXT_BYTES, decode
+
+
+MAX_WS_MESSAGE_BYTES = MAX_TEXT_BYTES + 64
+
+
+class DeviceSocket(web.WebSocketResponse):
+    authenticated = False
+
+    async def close(self, *, code=WSCloseCode.OK, message=b"", drain=True):
+        if code == WSCloseCode.MESSAGE_TOO_BIG:
+            if self.authenticated:
+                await self.send_json({"type": "error", "code": "bad_message", "retryable": False})
+            code, drain = 4003, False
+        return await super().close(code=code, message=message, drain=drain)
 
 
 _CLOSED = {WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED, WSMsgType.ERROR}
@@ -19,23 +33,35 @@ class DeviceSession:
         self.ws = ws
         self.conversation = Conversation(ws, stt=server.stt, tts=server.tts, bridge=server.bridge,
                                          canned=server.canned, log=server.log,
-                                         sleep=server.sleep, clock=server.clock)
+                                         sleep=server.sleep, clock=server.clock, pace_clock=server.pace_clock)
         self.session = None
         self.capture = None
         self.task = None
+        self.cleanup = None
+        self.retired = False
+        self.number = None
         self.bad_frame = False
+
+    @staticmethod
+    async def finish_cancel(task):
+        task.cancel()
+        with suppress(asyncio.CancelledError, ConnectionError):
+            await task
 
     async def cancel(self):
         self.capture = None
         if self.task is not None:
-            self.task.cancel()
-            with suppress(asyncio.CancelledError, ConnectionError):
-                await self.task
+            self.cleanup = asyncio.create_task(self.finish_cancel(self.task))
             self.task = None
+        if self.cleanup is not None:
+            await asyncio.shield(self.cleanup)
 
-    async def start(self):
+    async def start(self, number):
         await self.cancel()
+        if self.retired:
+            return
         self.session = self.server.next_session()
+        self.number = number
         self.capture = bytearray()
         self.bad_frame = False
         await self.conversation.state("listening")
@@ -46,7 +72,8 @@ class DeviceSession:
         pcm = bytes(self.capture)
         self.capture = None
         await self.conversation.state("thinking")
-        self.task = asyncio.create_task(self.conversation.run(pcm, self.session))
+        if not self.retired:
+            self.task = asyncio.create_task(self.conversation.run(pcm, self.session))
 
     async def handle(self, frame):
         if frame.type == WSMsgType.BINARY:
@@ -72,12 +99,15 @@ class DeviceSession:
             return
         match data["type"]:
             case "listen_start":
-                await self.start()
+                await self.start(data.get("session"))
             case "listen_stop":
                 await self.stop()
             case "cancel":
+                if data.get("session") != self.number:
+                    return
                 await self.cancel()
-                await self.conversation.state("idle")
+                if not self.retired:
+                    await self.conversation.state("idle", session=self.number)
             case "ping":
                 await self.ws.send_json({"type": "pong", "t": data["t"]})
             case "pong" | "error":
@@ -87,7 +117,7 @@ class DeviceSession:
 
 
 class WebSocketServer:
-    def __init__(self, config, stt, tts, bridge, canned, log, clock, sleep):
+    def __init__(self, config, stt, tts, bridge, canned, log, clock, sleep, pace_clock):
         self.config = config
         self.stt = stt
         self.tts = tts
@@ -96,7 +126,9 @@ class WebSocketServer:
         self.log = log
         self.clock = clock
         self.sleep = sleep
+        self.pace_clock = pace_clock
         self.active = None
+        self.connections = set()
         self.lock = asyncio.Lock()
         self.day = None
         self.sequence = 0
@@ -133,14 +165,25 @@ class WebSocketServer:
         return False
 
     async def handle(self, request):
-        ws = web.WebSocketResponse(autoping=False)
-        await ws.prepare(request)
-        if not await self.authenticate(ws):
+        if len(self.connections) >= self.config.ws_connection_limit:
+            raise web.HTTPServiceUnavailable()
+        ws = DeviceSocket(autoping=False, compress=False, max_msg_size=MAX_WS_MESSAGE_BYTES)
+        self.connections.add(ws)
+        try:
+            await ws.prepare(request)
+            if await self.authenticate(ws):
+                ws.authenticated = True
+                await self.serve_device(ws)
             return ws
+        finally:
+            self.connections.remove(ws)
+
+    async def serve_device(self, ws):
         device = DeviceSession(self, ws)
         try:
             async with self.lock:
                 if old := self.active:
+                    old.retired = True
                     await old.cancel()
                     await old.ws.close(code=4004)
                 self.active = device
@@ -152,16 +195,19 @@ class WebSocketServer:
                     await device.cancel()
                     await ws.close(code=4005)
                     break
-                if frame.type in _CLOSED or self.active is not device:
+                if frame.type in _CLOSED or device.retired:
                     break
                 await device.handle(frame)
         finally:
-            await device.cancel()
-            if self.active is device:
-                self.active = None
-        return ws
+            device.retired = True
+            try:
+                await device.cancel()
+            finally:
+                if self.active is device:
+                    self.active = None
 
     async def shutdown(self, app):
         if device := self.active:
+            device.retired = True
             await device.cancel()
-            await device.ws.close()
+        await asyncio.gather(*(ws.close() for ws in self.connections if ws.prepared))

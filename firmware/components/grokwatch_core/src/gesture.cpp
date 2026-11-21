@@ -2,6 +2,14 @@
 
 namespace grokwatch {
 
+GestureEvent GestureDetector::sample(Millis now, std::optional<unsigned> contacts,
+                                     Point raw, Point screen) {
+    if (contacts == 0) return update(now, false, {});
+    if (contacts == 1 && (raw.x != 0 || raw.y != 0)) return update(now, true, screen);
+    if (contact_ == Contact::Dragging) return {Gesture::DragMove, lastPoint_};
+    return {};
+}
+
 GestureEvent GestureDetector::update(Millis now, bool pressed, std::optional<Point> point) {
     if (!pressed) {
         const auto previous = contact_;
@@ -24,7 +32,7 @@ GestureEvent GestureDetector::update(Millis now, bool pressed, std::optional<Poi
         lastPoint_ = point;
         if (!origin_) origin_ = point;
     }
-    if (contact_ == Contact::Dragging) return {Gesture::DragMove, point};
+    if (contact_ == Contact::Dragging) return {Gesture::DragMove, lastPoint_};
 
     if (point) {
         const auto dx = double(point->x) - origin_->x;

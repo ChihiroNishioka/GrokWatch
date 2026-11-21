@@ -56,3 +56,19 @@ TEST(playback_buffer_threshold_and_short_reply) {
     buffer.end();
     CHECK(buffer.complete());
 }
+
+TEST(playback_buffer_discards_oldest_when_full) {
+    PlaybackBuffer buffer;
+    buffer.start();
+    PcmFrame frame{};
+    for (int i = 0; i < 98; ++i) {
+        frame[0] = i;
+        CHECK(buffer.push(frame));
+    }
+    CHECK_EQ(buffer.droppedFrames(), 2u);
+    for (int i = 2; i < 98; ++i) {
+        CHECK(buffer.pop(frame));
+        CHECK_EQ(frame[0], i);
+    }
+    CHECK(!buffer.pop(frame));
+}

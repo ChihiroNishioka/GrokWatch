@@ -15,3 +15,5 @@
 | 19:55 | 初回コミット候補のレビュー | — | Codex 72 点、Claude 76 点。Codex の high 2 件は履歴検査と公開文書を修正 | 修正後の候補を再検査 |
 | 承認後 | 初回公開と Phase 3 | — | オーナー確認待ち | オーナー確認後に GitHub リポジトリを作成して push。Phase 3 は採用方針の承認後に開始 |
 | 21:10 | Phase 3〜4 の gateway・bridge 修正と CI 統合。作業主体はエンジニア bot / Codex | `ctest` 通常・ASan/UBSan、`uv run --locked pytest`（3.11 / 3.13）、`idf.py build`、秘密・PII 検査 | ctest は各 57 件、pytest は各 119 件通過。生成アプリは 1,195,744 バイト。[テスト報告](TEST_REPORT.md) | GitHub Actions の実行、Phase 5 の端末確認、Phase 6 の Mac mini と伝書鳩の確認 |
+| 21:21 | PR #1（`feat/phase3`）レビュー 1 回目 | — | Codex 64 点（high 1 件）、Claude 78 点 | 指定された指摘の回帰テストと修正 |
+| 21:37 | NVS を廃止し、WS・webhook・ログ・タッチ・再生・仕様の指摘を修正 | `ctest` 通常・ASan/UBSan、`uv run pytest`（3.11 / 3.13）、`idf.py build`、`bash scripts/check_pii.sh` | ctest は各 60 件、pytest は各 132 件通過。生成アプリは 1,187,056 バイト。[テスト報告](TEST_REPORT.md) | 再レビューと Phase 5 の端末確認 |

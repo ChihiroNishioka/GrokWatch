@@ -13,7 +13,8 @@ def create_bridge(inbox, env=None, *, clock=time.time, gbot_timeout=60):
     timeout = float(env.get("GROKWATCH_REPLY_TIMEOUT_S", "90"))
     if name == "webhook":
         return Webhook(inbox, env.get("GROKWATCH_WEBHOOK_URL", ""), env.get("GROKWATCH_WEBHOOK_KEY", ""),
-                       clock=clock, reply_timeout=timeout)
+                       clock=clock, reply_timeout=timeout,
+                       allow_loopback_http=env.get("GROKWATCH_WEBHOOK_ALLOW_LOOPBACK_HTTP") == "1")
     if name == "gbot_cli":
         try:
             args = json.loads(env.get("GROKWATCH_GBOT_ARGS", "[]"))

@@ -4,7 +4,7 @@ import time
 
 import aiohttp
 
-from .contract import BridgeCancelled, BridgeTimeout, BridgeUnavailable, Health, ReplyChunk, Request, wait_for_reply
+from .contract import BridgeCancelled, BridgeTimeout, BridgeUnavailable, Health, ReplyChunk, Request, wait_until_deadline
 from .signing import signature
 
 
@@ -38,7 +38,8 @@ class MockBridge:
         if active := self._active.get(session):
             request, task = active
             self.inbox.cancel(request.request_id)
-            task.cancel()
+            if not task.done() and not task.cancelling():
+                task.cancel()
 
     async def send_utterance(self, text, session):
         request = Request.start(session, self.clock, self.reply_timeout)
@@ -48,36 +49,35 @@ class MockBridge:
         task = asyncio.create_task(self._respond(request, answer))
         self._active[session] = request, task
         try:
-            reply = await task
+            reply = await wait_until_deadline(task, request, self.clock)
         except asyncio.CancelledError:
             self.inbox.cancel(request.request_id)
             if asyncio.current_task().cancelling():
                 raise
             raise BridgeCancelled() from None
-        except BridgeUnavailable:
+        except (BridgeTimeout, BridgeUnavailable):
             self.inbox.cancel(request.request_id)
             raise
         finally:
             self._active.pop(session, None)
+            if not task.done() and not task.cancelling():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             if answer.done() and not answer.cancelled():
                 answer.exception()
         yield reply
 
     async def _respond(self, request, answer):
-        try:
-            async with asyncio.timeout(max(0, request.expires_at - self.clock())):
-                if self.delay:
-                    await asyncio.sleep(self.delay)
-                if self.mode == "fail":
-                    raise BridgeUnavailable()
-                if self.mode == "fixed":
-                    self.inbox.cancel(request.request_id)
-                    return ReplyChunk(self.text, self.status, end_conversation=self.end)
-                if self.mode == "post_reply":
-                    await self._post_reply(request)
-                return await wait_for_reply(answer, request, self.clock)
-        except TimeoutError:
-            raise BridgeTimeout() from None
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.mode == "fail":
+            raise BridgeUnavailable()
+        if self.mode == "fixed":
+            self.inbox.cancel(request.request_id)
+            return ReplyChunk(self.text, self.status, end_conversation=self.end)
+        if self.mode == "post_reply":
+            await self._post_reply(request)
+        return await asyncio.shield(answer)
 
     async def _post_reply(self, request):
         if self.variant == "cancelled":

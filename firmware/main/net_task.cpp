@@ -17,6 +17,10 @@
 #include <memory>
 #include <new>
 
+#if defined(CONFIG_ESP_WIFI_NVS_ENABLED) || defined(CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE)
+#error "GrokWatch requires Wi-Fi and PHY NVS storage to be disabled"
+#endif
+
 namespace gwapp {
 namespace {
 using namespace grokwatch;
@@ -215,10 +219,13 @@ public:
                 linkAction(link_.tick(now, rng_.unit()), now);
             }
 
-            Millis pressedAt;
-            while (xQueueReceive(app_.longPresses, &pressedAt, 0) == pdTRUE) {
+            for (GestureEvent event; xQueueReceive(app_.gestures, &event, 0) == pdTRUE;) {
                 const auto at = nowMs();
-                apply(avatar_.longPress(at));
+                apply(avatar_.touch(event, at));
+                if (event.kind != Gesture::LongPress) {
+                    const Lock lock(app_.mutex);
+                    app_.face.touch(event, at);
+                }
             }
             capture();
             const bool audioFault = pollPlayback();
@@ -273,10 +280,7 @@ private:
                         PcmFrame frame;
                         std::memcpy(frame.data(), data.get(), bytesPerFrame);
                         Lock lock(app_.mutex);
-                        if (!app_.playback.push(frame)) {
-                            // Ignore frames received after tts_end.
-                            if (!playbackEnded_) ioFailed_ = true;
-                        }
+                        app_.playback.push(frame);
                     } else if (!link_.ready()) {
                         ioFailed_ = true;
                     }
@@ -329,7 +333,9 @@ private:
             return;
         }
         switch (message->type) {
-            case Type::State: apply(avatar_.remote(decodeState(message->string("state")), now)); break;
+            case Type::State:
+                apply(avatar_.remote(decodeState(message->string("state")), now, message->integer("session")));
+                break;
             case Type::Error:
                 apply(avatar_.error(message->string("code") == "no_speech",
                                     message->boolean("retryable").value_or(false), now));
@@ -347,7 +353,9 @@ private:
                 if (avatar_.acceptsPlayback()) {
                     Lock lock(app_.mutex);
                     app_.playback.end();
-                    playbackEnded_ = true;
+                    if (const auto dropped = app_.playback.droppedFrames()) {
+                        ESP_LOGW(tag, "playback_frames_dropped=%u", static_cast<unsigned>(dropped));
+                    }
                 }
                 break;
             case Type::Ping: send({Type::Pong, {{"t", message->integer("t").value_or(0)}}}); break;
@@ -362,7 +370,6 @@ private:
         ++app_.playbackEpoch;
         app_.playbackDrained = false;
         app_.level = {};
-        playbackEnded_ = false;
     }
 
     void publish(const Effects& effects) {
@@ -382,14 +389,14 @@ private:
 
     void apply(const Effects& effects) {
         // Publish stop/cancel immediately. Start capture after listen_start is sent.
-        if (effects.startCapture) send({Type::ListenStart, {}});
+        if (effects.startCapture) send({Type::ListenStart, {{"session", avatar_.sessionNumber()}}});
         {
             Lock lock(app_.mutex);
             if (effects.startCapture && ioFailed_) return;
             publish(effects);
         }
         if (effects.send == Command::ListenStop) send({Type::ListenStop, {}});
-        if (effects.send == Command::Cancel) send({Type::Cancel, {}});
+        if (effects.send == Command::Cancel) send({Type::Cancel, {{"session", avatar_.sessionNumber()}}});
     }
 
     void capture() {
@@ -433,7 +440,6 @@ private:
     Backoff wifiBackoff_;
     LinkSupervisor link_;
     AvatarStateMachine avatar_;
-    bool playbackEnded_ = false;
     bool ioFailed_ = false;
 };
 }

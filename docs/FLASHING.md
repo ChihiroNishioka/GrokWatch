@@ -5,7 +5,7 @@
 ## 対象を確認して全フラッシュを控える
 
 1. 本体が M5Stack StopWatch C152 であることと、ハードウェア版を確認します。データ通信対応の USB-C ケーブルで接続します。電源ボタンを長押しし、緑 LED が点滅したら離します。接続前後の `/dev/cu.usbmodem*` を比較し、この端末のポートを一つ選びます。[M5Stack の StopWatch 仕様](https://docs.m5stack.com/en/core/StopWatch)
-2. ESP-IDF v5.5.4 の環境を有効にし、`port` を選んだポートの実値に置き換えます。`chip_id` で ESP32-S3、`flash_id` で 16 MB を確認します。異なる機種・容量、判定不能、Secure Boot やフラッシュ暗号化の影響が未確認の場合は停止します。出力は非公開で保管します。
+2. ESP-IDF v5.5.4 の `export.sh` を読み込んで環境を有効にし、`port` を選んだポートの実値に置き換えます。`chip_id` で ESP32-S3、`flash_id` で 16 MB を確認します。異なる機種・容量、判定不能、Secure Boot やフラッシュ暗号化の影響が未確認の場合は停止します。出力は非公開で保管します。
 
    ```bash
    port='<選択した /dev/cu.usbmodem* のポート>'
@@ -46,7 +46,7 @@
 python -m esptool --chip esp32s3 --port "$port" write_flash 0x10000 firmware/build/grokwatch.bin
 ```
 
-NVS の書き込み・消去、全消去、保護機能の強制解除は禁止です。起動後は [仕様 §12](PHASE3_SPEC.md#12-実機でしか確かめられないことphase-5-用) に沿って確認し、[テスト報告](TEST_REPORT.md) に結果を記録します。[Espressif の esptool v4 コマンド仕様](https://docs.espressif.com/projects/esptool/en/release-v4/esp32s3/esptool/basic-commands.html)
+ファームは NVS を使わず、読み取りも書き込みも行いません。書き込み作業でも NVS には触れません。全消去と保護機能の強制解除は禁止です。起動後は [仕様 §12](PHASE3_SPEC.md#12-実機でしか確かめられないことphase-5-用) に沿って確認し、[テスト報告](TEST_REPORT.md) に結果を記録します。[Espressif の esptool v4 コマンド仕様](https://docs.espressif.com/projects/esptool/en/release-v4/esp32s3/esptool/basic-commands.html)
 
 ## 元のフラッシュに戻す
 

@@ -45,11 +45,17 @@ void PlaybackBuffer::clear() {
 
 void PlaybackBuffer::start() {
     clear();
+    dropped_ = 0;
     active_ = true;
 }
 
 bool PlaybackBuffer::push(const PcmFrame& frame) {
-    if (!active_ || ended_ || size_ == frames_.size()) return false;
+    if (!active_ || ended_) return false;
+    if (size_ == frames_.size()) {
+        read_ = (read_ + 1) % frames_.size();
+        --size_;
+        ++dropped_;
+    }
     frames_[(read_ + size_) % frames_.size()] = frame;
     ++size_;
     return true;

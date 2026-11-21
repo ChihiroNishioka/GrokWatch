@@ -80,14 +80,14 @@ def process_gone(path):
 
 
 @asynccontextmanager
-async def gateway(*, bridge=None, stt=None, tts=None, clock=time.time, sleep=asyncio.sleep,
+async def gateway(*, bridge=None, stt=None, tts=None, clock=time.time, sleep=asyncio.sleep, pace_clock=time.monotonic,
                   port=0, test_device_token=None, **settings):
     from grokwatch_gateway.__main__ import create_gateway
     from grokwatch_gateway.config import Config
 
     config = Config(device_token=test_device_token or secrets.token_urlsafe(32), gateway_host="127.0.0.1",
                     gateway_port=port, reply_port=0, **settings)
-    instances = create_gateway(config, stt=stt, tts=tts, bridge=bridge, clock=clock, sleep=sleep)
+    instances = create_gateway(config, stt=stt, tts=tts, bridge=bridge, clock=clock, sleep=sleep, pace_clock=pace_clock)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as client:
         async with serve(instances.reply_app) as reply_base:
             instances.set_reply_url(reply_base + "/v1/reply")

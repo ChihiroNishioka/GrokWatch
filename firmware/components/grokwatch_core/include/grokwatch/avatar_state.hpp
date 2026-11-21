@@ -1,6 +1,7 @@
 #pragma once
 #include "grokwatch/audio_level.hpp"
 #include "grokwatch/clock.hpp"
+#include "grokwatch/gesture.hpp"
 #include <optional>
 
 namespace grokwatch {
@@ -24,7 +25,9 @@ public:
     Effects hello(Millis now);
     Effects linkDown(Millis now);
     Effects longPress(Millis now);
-    Effects remote(State state, Millis now);
+    Effects touch(const GestureEvent& gesture, Millis now);
+    Effects remote(State state, Millis now, std::optional<std::int64_t> session = {});
+    std::int64_t sessionNumber() const { return sessionNumber_; }
     Effects error(bool noSpeech, bool retryable, Millis now);
     Effects recorded(Millis now, double rms);
     Effects ttsStart(Millis now);
@@ -39,6 +42,7 @@ private:
 
     State state_ = State::Disconnected;
     Millis entered_ = 0;
+    std::int64_t sessionNumber_ = 0;
     Vad vad_;
     unsigned capturedFrames_ = 0;
     bool playback_ = false;

@@ -178,7 +178,9 @@ TEST(tap_during_speaking_keeps_state) {
     auto avatar = speaking();
     FaceAnimator face(1, 1100);
     face.frame(avatar.state(), 1100);
-    face.touch({Gesture::Tap, Point{433, 233}}, 1100);
+    const GestureEvent tap{Gesture::Tap, Point{433, 233}};
+    CHECK_EQ(avatar.touch(tap, 1100).send, Command::None);
+    face.touch(tap, 1100);
     const auto model = face.frame(avatar.state(), 1220);
     CHECK_NEAR(model.gaze.x, 1.0, 1e-6);
     CHECK(model.blink < 1);
@@ -189,9 +191,16 @@ TEST(tap_during_speaking_keeps_state) {
 TEST(drag_during_speaking_keeps_state) {
     auto avatar = speaking();
     FaceAnimator face(1, 1100);
-    face.touch({Gesture::DragStart, Point{433, 233}}, 1100);
+    const GestureEvent start{Gesture::DragStart, Point{433, 233}};
+    CHECK_EQ(avatar.touch(start, 1100).send, Command::None);
+    face.touch(start, 1100);
     CHECK(face.frame(avatar.state(), 1200).gaze.x > 0.5);
-    face.touch({Gesture::DragEnd, {}}, 1200);
+    const GestureEvent move{Gesture::DragMove, Point{420, 233}};
+    CHECK_EQ(avatar.touch(move, 1200).send, Command::None);
+    face.touch(move, 1200);
+    const GestureEvent end{Gesture::DragEnd, {}};
+    CHECK_EQ(avatar.touch(end, 1200).send, Command::None);
+    face.touch(end, 1200);
     CHECK_NEAR(face.frame(avatar.state(), 1500).gaze.x, 0.0, 1e-6);
     CHECK_EQ(avatar.state(), State::Speaking);
 }
@@ -207,4 +216,18 @@ TEST(touch_during_disconnected_keeps_ring) {
     CHECK(face.frame(State::Disconnected, 510).gaze.x < 0);
     CHECK_EQ(face.frame(State::Disconnected, 510).ring.kind, RingKind::None);
     CHECK_EQ(face.frame(State::Disconnected, 1000).ring.kind, RingKind::Dashed);
+}
+
+TEST(delayed_cancel_ack_does_not_stop_new_capture) {
+    AvatarStateMachine avatar;
+    avatar.hello(0);
+    CHECK(avatar.longPress(1).startCapture);
+    avatar.longPress(1000);
+    CHECK_EQ(avatar.longPress(2000).send, Command::Cancel);
+    const auto cancelled = avatar.sessionNumber();
+    CHECK(avatar.longPress(3000).startCapture);
+    CHECK(avatar.sessionNumber() != cancelled);
+    CHECK(!avatar.remote(State::Idle, 3100, cancelled).stopCapture);
+    CHECK_EQ(avatar.state(), State::Listening);
+    CHECK(avatar.remote(State::Idle, 3110, avatar.sessionNumber()).stopCapture);
 }

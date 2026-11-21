@@ -7,12 +7,15 @@ def test_asset_allowlist(repo_root, git_repo):
     approved = {
         ".github/workflows/ci.yml", "bridge/src/main.py", "firmware/CMakeLists.txt",
         "firmware/main/Kconfig.projbuild", "firmware/main/main.cpp", "firmware/main/board.hpp",
-        "firmware/main/driver.h", "firmware/main/driver.c", "firmware/check.cmake",
+        "firmware/check.cmake",
         "firmware/partitions.csv", "firmware/sdkconfig.defaults", "firmware/dependencies.lock",
-        "README.md", "pyproject.toml", "scripts/check.sh", "tests/fixture.json",
+        "README.md", "pyproject.toml", "scripts/check.sh", "uv.lock",
         "LICENSE", ".gitignore", "config/.env.example",
     }
     rejected = {"assets/example.png", "assets/example.jpg", "assets/example.mp4", "other.dat", "notes.txt"}
+    rejected.update({"firmware/main/driver.h", "firmware/main/driver.c", "tests/fixture.json",
+                     "assets/partitions.csv", "assets/uv.lock", "assets/sdkconfig.defaults",
+                     "firmware/sdkconfig.local.defaults"})
     config = tomllib.loads((repo_root / ".gitleaks.toml").read_text())
     rule = next(rule for rule in config["rules"] if rule["id"] == "grokwatch-file-format")
     allowed_paths = [regex for allowlist in rule["allowlists"] for regex in allowlist["paths"]]

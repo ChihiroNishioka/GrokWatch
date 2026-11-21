@@ -159,13 +159,38 @@ async def test_simultaneous_terminal_transition(inbox, same):
     assert registry.state(request_id) == "answered"
 
 
+@pytest.mark.parametrize("cancel_first", [True, False])
+async def test_reply_and_cancel_follow_first_terminal_transition(inbox, cancel_first):
+    from grokwatch_bridge.contract import BridgeCancelled
+
+    now, registry, client, base, key, register = inbox
+    request_id, answer = register()
+    if cancel_first:
+        registry.cancel(request_id)
+        assert (await post(client, base, request_id, key, timestamp=now[0]))[0] == 410
+        with pytest.raises(BridgeCancelled):
+            await answer
+        assert registry.state(request_id) == "cancelled"
+    else:
+        assert await post(client, base, request_id, key, timestamp=now[0]) == (
+            200, {"status": "accepted"},
+        )
+        registry.cancel(request_id)
+        assert await post(client, base, request_id, key, timestamp=now[0]) == (
+            200, {"status": "duplicate"},
+        )
+        assert (await answer).text == "返事"
+        assert registry.state(request_id) == "answered"
+
+
 @pytest.mark.parametrize("missing", ["url", "key", None])
 async def test_healthz_shape_and_no_secrets(missing):
     from grokwatch_bridge.webhook import Webhook
 
     key = secrets.token_urlsafe(32)
     url = "http://127.0.0.1:1/" + secrets.token_urlsafe(8)
-    adapter = Webhook(None, "" if missing == "url" else url, "" if missing == "key" else key)
+    adapter = Webhook(None, "" if missing == "url" else url, "" if missing == "key" else key,
+                      allow_loopback_http=True)
     async with gateway(bridge=adapter) as (_, config, client, _, base):
         async with client.get(base + "/healthz") as response:
             assert response.status == 200

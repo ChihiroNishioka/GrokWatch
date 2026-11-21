@@ -12,6 +12,7 @@ TEST(protocol_roundtrip_all_types) {
         {{Type::ListenStop, {}}, R"({"type":"listen_stop"})"},
         {{Type::Cancel, {}}, R"({"type":"cancel"})"},
         {{Type::State, {{"state", "thinking"}}}, R"({"type":"state","state":"thinking"})"},
+        {{Type::State, {{"state", "idle"}, {"session", 3}}}, R"({"type":"state","state":"idle","session":3})"},
         {{Type::TtsStart, {{"sample_rate", 16000}}}, R"({"type":"tts_start","sample_rate":16000})"},
         {{Type::TtsEnd, {}}, R"({"type":"tts_end"})"},
         {{Type::Error, {{"code", "internal"}, {"retryable", true}}}, R"({"type":"error","code":"internal","retryable":true})"},
@@ -33,6 +34,7 @@ TEST(protocol_rejects_malformed) {
          R"({"type":"x","v":null})", R"({"type":"x","v":"\q"})", R"({"type":"x","v":"\uD800"})",
          R"({"type":"x","v":"\uDC00"})", "{\"type\":\"x\",\"v\":\"\xc0\x80\"}",
          "{\"type\":\"x\",\"v\":\"\xed\xa0\x80\"}", R"({"type":"x","type":"ping","t":1})",
+         R"({"type":"state","state":"idle","session":"3"})", R"({"type":"state","state":"idle","session":0})",
          R"({"type":"ping","t":01})", R"({"type":"ping","t":9223372036854775808})"})
         CHECK(!decode(json));
     auto unicode = decode(R"({"type":"x","v":"\u3042\uD83D\uDE00"})");

@@ -7,7 +7,7 @@ from .protocol import FRAME_BYTES, MIN_FRAMES
 
 
 class Conversation:
-    def __init__(self, ws, *, stt, tts, bridge, canned, log, sleep, clock):
+    def __init__(self, ws, *, stt, tts, bridge, canned, log, sleep, clock, pace_clock):
         self.ws = ws
         self.stt = stt
         self.tts = tts
@@ -16,10 +16,14 @@ class Conversation:
         self.log = log
         self.sleep = sleep
         self.clock = clock
+        self.pace_clock = pace_clock
 
-    async def state(self, state):
+    async def state(self, state, *, session=None):
         self.log("device_state", state=state)
-        await self.ws.send_json({"type": "state", "state": state})
+        message = {"type": "state", "state": state}
+        if session is not None:
+            message["session"] = session
+        await self.ws.send_json(message)
 
     async def error(self, code, retryable=True):
         self.log("conversation_error", code=code)
@@ -28,9 +32,12 @@ class Conversation:
     async def play(self, pcm):
         await self.state("speaking")
         await self.ws.send_json({"type": "tts_start", "sample_rate": 16000})
+        started = self.pace_clock()
         for index, offset in enumerate(range(0, len(pcm), FRAME_BYTES)):
             if index >= 10:
-                await self.sleep(0.02)
+                remaining = started + (index - 9) * 0.02 - self.pace_clock()
+                if remaining > 0:
+                    await self.sleep(remaining)
             await self.ws.send_bytes(pcm[offset:offset + FRAME_BYTES].ljust(FRAME_BYTES, b"\0"))
         await self.ws.send_json({"type": "tts_end"})
 
@@ -89,10 +96,10 @@ class Conversation:
             return
         reply_text = "".join(chunks)
         self.log("speech_reply", chars=len(reply_text), text=reply_text, emotion=reply.emotion)
+        if not reply_text.strip():
+            await self.fail("reply_error")
+            return
         if status == "error":
-            if not reply_text:
-                await self.fail("reply_error")
-                return
             await self.state("error")
             await self.error("reply_error")
         try:

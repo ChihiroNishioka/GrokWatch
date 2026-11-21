@@ -38,6 +38,10 @@ def decode(frame):
                 return None
             if isinstance(value, str):
                 value.encode("utf-8")
+        if data["type"] in {"listen_start", "cancel"} and "session" in data:
+            number = data["session"]
+            if type(number) is not int or not 1 <= number <= 2**63 - 1:
+                return None
         if any(type(data.get(field)) is not kind for field, kind in _FIELDS.get(data["type"], {}).items()):
             return None
         return data

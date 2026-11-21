@@ -63,7 +63,7 @@ description = "許可リストにないファイル形式"
 path = '''.+'''
 
 [[rules.allowlists]]
-paths = ['''(?i)\.(?:md|sh|ya?ml|toml|py|cpp|hpp|h|c|cmake|csv|lock|projbuild|defaults|json)$''', '''(?i)(?:^|/)CMakeLists\.txt$''', '''^(?:LICENSE|\.gitignore|config/\.env\.example)$''']
+paths = ['''(?i)\.(?:md|sh|ya?ml|toml|py|cpp|hpp|cmake|projbuild)$''', '''(?i)(?:^|/)CMakeLists\.txt$''', '''^(?:LICENSE|\.gitignore|config/\.env\.example|uv\.lock|firmware/(?:dependencies\.lock|partitions\.csv|sdkconfig\.defaults))$''']
 
 [[allowlists]]
 description = "この設定に含まれる検出式の定義行"

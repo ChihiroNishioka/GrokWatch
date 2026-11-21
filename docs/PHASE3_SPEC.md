@@ -1,6 +1,6 @@
 # Phase 3〜4 仕様と GREEN 一覧
 
-状態: 仕様案（v1）。コードはまだない。数値は実測前の仮の値で、Phase 5 の実機確認で見直す。
+状態は実装済み（ビルドとモックで確認、実機未検証）。しきい値と待ち時間は Phase 5 の実機確認で見直す。
 
 Phase 3 でファームウェア、gateway、bridge を実装し、Phase 4 で開発用 Linux 機のビルドと自動テストで受け入れる。実機（StopWatch C152）、Mac、Mac mini には触れない。受け入れは「11. GREEN when」の全項目が CI で通ること。
 
@@ -45,18 +45,20 @@ GrokWatch/
 ├── pyproject.toml              # uv ワークスペース（members: gateway, bridge）。uv.lock をコミット
 ├── firmware/
 │   ├── CMakeLists.txt          # ESP-IDF プロジェクト。PROJECT_VER = 0.1.0
+│   ├── dependencies.lock      # ESP-IDF コンポーネントの固定版
 │   ├── sdkconfig.defaults      # 秘密を含まない既定値（C152: Octal PSRAM、16 MB フラッシュ）
 │   ├── partitions.csv          # nvs / phy_init / factory（OTA なし）
 │   ├── main/
 │   │   ├── idf_component.yml   # m5stack/m5unified、m5stack/m5gfx ==0.2.30、espressif/esp_websocket_client
 │   │   ├── Kconfig.projbuild   # GROKWATCH_* の設定項目（既定は空）
+│   │   ├── app.hpp             # タスク間の共有状態
 │   │   ├── app_main.cpp        # 初期化とタスク起動
 │   │   ├── board.cpp           # M5Unified による画面・タッチ・音声の初期化
 │   │   ├── render_task.cpp     # core の FaceModel を M5GFX スプライトに描く
 │   │   ├── touch_task.cpp      # 生のタッチ点を core のジェスチャー判定へ渡す
 │   │   ├── audio_task.cpp      # 収音 20 ms フレーム化・再生バッファ
 │   │   ├── net_task.cpp        # Wi-Fi・WebSocket・再接続
-│   │   └── config_store.cpp    # NVS と Kconfig から設定を読む
+│   │   └── config_store.cpp / config_store.hpp # Kconfig から設定を読む
 │   ├── components/grokwatch_core/   # C++17、ESP-IDF・第三者ヘッダ非依存
 │   │   ├── CMakeLists.txt      # ESP_PLATFORM なら idf_component_register、そうでなければ add_library
 │   │   ├── include/grokwatch/
@@ -70,7 +72,7 @@ GrokWatch/
 │   │   │   ├── link_supervisor.hpp  # Wi-Fi・WS・認証の接続状態
 │   │   │   ├── protocol.hpp         # v1 メッセージのエンコード / デコード（最小 JSON）
 │   │   │   ├── audio_level.hpp      # 振幅レベルと簡易 VAD
-│   │   │   ├── config.hpp           # NVS と Kconfig の優先順位
+│   │   │   ├── config.hpp           # 設定と接続の前提条件
 │   │   │   └── rng.hpp / clock.hpp  # 乱数・時刻は注入（テストで固定）
 │   │   └── src/*.cpp
 │   └── host_test/
@@ -81,18 +83,17 @@ GrokWatch/
 ├── gateway/
 │   ├── pyproject.toml          # grokwatch-gateway。依存は aiohttp。dev: pytest、pytest-asyncio
 │   ├── src/grokwatch_gateway/
-│   │   ├── __main__.py         # 起動。設定検証
+│   │   ├── __main__.py         # 起動と /healthz
 │   │   ├── config.py           # 環境変数と秘密の取得（Keychain / 開発用 env）
 │   │   ├── ws_server.py        # デバイス WebSocket（認証・セッション・音声）
 │   │   ├── protocol.py         # v1 メッセージの型と検証
 │   │   ├── conversation.py     # 1 回の発話の流れ（STT → bridge → TTS）
-│   │   ├── reply_server.py     # /v1/reply と /healthz
+│   │   ├── reply_server.py     # /v1/reply
 │   │   ├── registry.py         # request_id の状態（pending / answered / expired / cancelled）
-│   │   ├── stt/{base,mock,whisper_cpp}.py
-│   │   ├── tts/{base,mock,macos_say}.py
+│   │   ├── audio.py            # STT・TTS のモックと外部コマンド
 │   │   ├── canned.py           # 定型音声の文と事前合成
 │   │   └── logging.py          # JSON ログと伏せ字
-│   └── tests/
+│   └── tests/                  # test_ws.py、test_conversation.py、test_reply.py、test_providers.py、test_logging.py
 ├── bridge/
 │   ├── pyproject.toml          # grokwatch-bridge。gateway に依存しない
 │   ├── src/grokwatch_bridge/
@@ -102,7 +103,7 @@ GrokWatch/
 │   │   ├── gbot_cli.py
 │   │   ├── mock.py
 │   │   └── signing.py          # HMAC 署名（返信側の参考実装と同じ手順）
-│   └── tests/
+│   └── tests/test_adapters.py
 ├── tests/
 │   ├── e2e/                    # モック通し。fake_device.py を含む
 │   ├── fixtures/               # 偽の whisper-cli・say・security・gbot（シェルスクリプト）。PCM はテストで生成
@@ -168,7 +169,7 @@ GrokWatch/
 | drag | 移動が 12 px を超えた時点から。以後は長押しにならない |
 | swipe | 速度・方向を問わず drag として扱う。モード切替なし |
 | 長押しの間隔 | 長押し発火後 800 ms 以内の次の長押しは無視（連打による開始→即停止を防ぐ） |
-| タッチ点の取得 | 100 Hz（10 ms）でポーリング |
+| タッチ点の取得 | 100 Hz（10 ms）でポーリング。読み取り失敗と接触中の生座標 (0, 0) は欠損として扱い、ドラッグ中は最後に取得した座標を保持する |
 
 ### 4.5 音声と会話のタイミング
 
@@ -178,8 +179,8 @@ GrokWatch/
 | 収音の最大長 | 15 秒（750 フレーム）。端末と gateway の両方で打ち切る |
 | 端末の簡易 VAD | RMS 500 以上を発話とみなす。発話後、連続 60 フレーム（1,200 ms）の無音で `listen_stop`。開始から 5,000 ms 発話がなければ `listen_stop` |
 | gateway の最短発話 | 300 ms（15 フレーム）未満は空の発話として扱う |
-| TTS の送出 | `tts_start` のあと、最初の最大 10 フレーム（200 ms 分）を待機なしで送り、以後は実時間で送る。最後のフレームはゼロで 640 バイトに埋める |
-| 端末の再生バッファ | 300 ms ためてから再生開始。300 ms 未満で `tts_end` が来たら残りを再生し、空なら完了する |
+| TTS の送出 | `tts_start` のあと、最初の最大 10 フレーム（200 ms 分）を待機なしで送り、11 フレーム目以降は送出開始から 20 ms 刻みの締切に合わせる。最後のフレームはゼロで 640 バイトに埋める |
+| 端末の再生バッファ | 300 ms ためてから再生開始。300 ms 未満で `tts_end` が来たら残りを再生し、空なら完了する。96 フレームで満杯になったら最古のフレームを捨て、破棄数を数えながら接続を維持する |
 | 返事待ちの上限 | 90 秒（`GROKWATCH_REPLY_TIMEOUT_S`）。端末側の安全上限は 100 秒（Thinking に入ってから 100 秒で Error → Idle。ping / pong や Thinking の再通知は計時に影響しない） |
 | Thinking の合図 | 20 秒（BRIDGE_WEBHOOK.md §5） |
 
@@ -194,7 +195,8 @@ GrokWatch/
 | gateway の無通信切断 | 30 秒間何も受信しなければ閉じる |
 | hello の期限 | 接続から 5 秒以内に `hello` が来なければ gateway が閉じる |
 | 切断時 | 端末は収音停止・再生バッファ破棄・Disconnected。gateway は進行中の処理を止め、`pending` があれば `cancelled` にする。復旧後は再認証して Idle |
-| 同時接続 | 1 台。新しく認証できた接続が来たら古い接続を 4004 で閉じる |
+| 同時接続 | 会話を処理する端末は 1 台。新しく認証できた接続が来たら古い接続を 4004 で閉じる |
+| WS 接続枠 | 認証待ちを含め既定 4 接続。`GROKWATCH_WS_CONNECTION_LIMIT` で変更でき、満杯ならアップグレード前に HTTP 503 を返す |
 
 ### 4.7 プロトコル v1
 
@@ -202,6 +204,7 @@ GrokWatch/
 | --- | --- |
 | URL | `ws://<gateway-host>:8765/v1/ws`（ホストとポートは設定から。8765 は既定値） |
 | テキストフレーム | UTF-8 の JSON オブジェクト 1 つ、4,096 バイト以下。全メッセージに `"type"` |
+| aiohttp の受信上限 | `max_msg_size = 4,160` バイト（4,096 + 64 バイト）。圧縮は無効。パーサーがサイズで拒否したら 4003 で閉じ、認証済みなら先に `error{bad_message}` を送る |
 | バイナリフレーム | 音声 1 フレーム（ちょうど 640 バイト）。順序番号は持たない（TCP の順序に任せる） |
 | JSON の範囲 | 端末の core は平たいオブジェクト（文字列・整数・真偽値）だけを扱う最小実装。文字列は JSON のエスケープを扱う。入れ子・配列・浮動小数点は不正として扱う |
 | 未知の `type`（認証後） | 無視し、診断コードだけをログに残す |
@@ -215,7 +218,7 @@ GrokWatch/
 | デバイス WS の待ち受け | `GROKWATCH_GATEWAY_HOST`（既定 `0.0.0.0`）: `GROKWATCH_GATEWAY_PORT`（既定 `8765`） |
 | 返信口と `/healthz` | `GROKWATCH_REPLY_LISTEN`（既定 `127.0.0.1:8767`）。ホストは `127.0.0.1` のみ、ポートは変更可 |
 | HTTP / WS ライブラリ | aiohttp（サーバ・クライアントとも）。版は `uv.lock` で固定 |
-| webhook 送信 | 8 秒、1 回だけ。body 4 KB 以下（`text` は 1,000 文字で切り、UTF-8 で直列化した body が 4,096 バイトに収まるまでさらに切る）。`lang` は `ja-JP`、`max_chars` は 120 |
+| webhook 送信 | HTTPS のみ。開発用フラグでループバック IP の HTTP を許可する。リダイレクトは追わない。8 秒、1 回だけ。body 4 KB 以下（`text` は 1,000 文字で切り、UTF-8 で直列化した body が 4,096 バイトに収まるまでさらに切る）。`lang` は `ja-JP`、`max_chars` は 120 |
 | `reply_token` | `secrets.token_urlsafe(32)`（32 バイト） |
 | `request_id` | UUIDv4 |
 | `session_id` / `turn` | `s-<YYYYMMDD>-<3 桁連番>`。長押しで開始するたびに新しい session、v1 の `turn` は常に 1 |
@@ -240,18 +243,17 @@ GrokWatch/
 
 ### 4.10 端末の設定
 
-| 項目 | Kconfig | NVS（名前空間 `grokwatch`） |
-| --- | --- | --- |
-| Wi-Fi SSID | `CONFIG_GROKWATCH_WIFI_SSID` | `wifi_ssid` |
-| Wi-Fi パスワード | `CONFIG_GROKWATCH_WIFI_PASSWORD` | `wifi_pass` |
-| gateway ホスト | `CONFIG_GROKWATCH_GATEWAY_HOST` | `gw_host` |
-| gateway ポート | `CONFIG_GROKWATCH_GATEWAY_PORT`（既定 8765） | `gw_port` |
-| デバイストークン | `CONFIG_GROKWATCH_DEVICE_TOKEN` | `dev_token` |
+| 項目 | Kconfig |
+| --- | --- |
+| Wi-Fi SSID | `CONFIG_GROKWATCH_WIFI_SSID` |
+| Wi-Fi パスワード | `CONFIG_GROKWATCH_WIFI_PASSWORD` |
+| gateway ホスト | `CONFIG_GROKWATCH_GATEWAY_HOST` |
+| gateway ポート | `CONFIG_GROKWATCH_GATEWAY_PORT`（既定 8765） |
+| デバイストークン | `CONFIG_GROKWATCH_DEVICE_TOKEN` |
 
-- 優先順位: NVS に値があれば NVS、なければ Kconfig。必須設定が両方で欠けていれば接続せず Disconnected を表示し、ログに「設定なし」とだけ出す（値は出さない）。
-- Kconfig の既定値はポートの 8765 を除いて空。ローカルの値は `firmware/sdkconfig.local.defaults`（gitignore に追加）に書き、`SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.local.defaults"` で読み込む。CI はこのファイルなしでビルドする。
-- ファイル名について: 当初案の名前は `scripts/check_pii.sh` の `.local` ホスト名検出に一致し、文書やスクリプトに書くだけで検査が失敗する。そのため末尾に `.defaults` を付けた名前にする（ESP-IDF の慣例とも合う）。
-- NVS への書き込み手順は Phase 5 で決める。Phase 3〜4 のファームは設定値を読み取り専用で開く。NVS の読み取り準備が失敗した場合は Kconfig の値を使う。エラー時の消去や初期化のやり直しは行わない。
+- 端末設定は Kconfig で渡す。ローカルの値は Git 管理外の `firmware/sdkconfig.local.defaults` に置く。ポート以外の既定値は空。必須値が欠けている場合は「設定なし」と記録し、Disconnected のまま待つ。
+- ファームは NVS を使わない。読み取りも書き込みも行わない。M5GFX 0.2.30 のボード検出キャッシュはビルド時に除き、M5Unified の IMU 初期化は無効にする。
+- Wi-Fi の `CONFIG_ESP_WIFI_NVS_ENABLED=n` と PHY の `CONFIG_ESP_PHY_CALIBRATION_AND_DATA_STORAGE=n` を指定する。`esp_wifi_init` に `nvs_enable=false` を渡し、Wi-Fi 設定は `WIFI_STORAGE_RAM` に置く。
 
 ### 4.11 ビルドと CI
 
@@ -300,10 +302,10 @@ core の `AvatarStateMachine` は時刻と入力イベントを受け、次の�
 | `hello` | 端末 → gw | `v`(int=1)、`token`(str)、`fw`(str) | 接続後の最初のメッセージ。5 秒以内 |
 | `hello_ok` | gw → 端末 | `v`(int=1) | 認証成功。端末は Idle |
 | `auth_error` | gw → 端末 | `code`: `bad_token` / `unsupported_version` | 送ったあと閉じる |
-| `listen_start` | 端末 → gw | — | 収音開始。以後のバイナリを発話として受ける |
+| `listen_start` | 端末 → gw | 任意の `session`（正の整数） | 収音開始。以後のバイナリを発話として受ける |
 | `listen_stop` | 端末 → gw | — | 収音終了。gw は即座に `state{thinking}` |
-| `cancel` | 端末 → gw | — | 進行中の発話を取り消す。gw は `state{idle}` |
-| `state` | gw → 端末 | `state`: `idle` / `listening` / `thinking` / `speaking` / `error` | 会話状態 |
+| `cancel` | 端末 → gw | 開始時に付けた `session` | 一致する発話を取り消し、gw は `state{idle}` に同じ番号を付けて返す |
+| `state` | gw → 端末 | `state`: `idle` / `listening` / `thinking` / `speaking` / `error` | 会話状態。端末は現在の番号と合わない `session` 付きの通知を捨てる |
 | `tts_start` | gw → 端末 | `sample_rate`(int=16000) | 以後のバイナリは再生音 |
 | `tts_end` | gw → 端末 | — | 再生音の終わり |
 | `error` | 双方向 | `code`(str)、`retryable`(bool) | 秘密を含まない診断コード |
@@ -331,7 +333,7 @@ core の `AvatarStateMachine` は時刻と入力イベントを受け、次の�
 | 4000 | 版が違う（`auth_error{unsupported_version}` のあと） |
 | 4001 | トークン不正（`auth_error{bad_token}` のあと） |
 | 4002 | `hello` の期限切れ |
-| 4003 | 認証前のプロトコル違反（応答なし） |
+| 4003 | 認証前のプロトコル違反（応答なし）、またはパーサーのサイズ超過（認証済みなら `error{bad_message}` のあと） |
 | 4004 | 新しい接続に置き換えた |
 | 4005 | 無通信の期限切れ |
 
@@ -374,7 +376,7 @@ HTTP の形式を検証してから、[webhook ブリッジ仕様 §3](BRIDGE_WE
 - `pending` からの遷移は発話ごとに一度だけ確定する。`answered` の `reply_token` は受理済み返信の署名検証にだけ使い、期限に達したら破棄する。同じ body の判定は JSON の再直列化をせず、受信したバイト列で行う。
 - `emotion` の省略時は `neutral`。未知の値も `neutral` として扱い、ログには正規化後の値を残す。
 - Markdown・URL・絵文字を避ける指示と、返信 POST が 5xx または接続失敗だった場合の再送は伝書鳩側の契約。Phase 5 で確認する。
-- `status: declined` は `text` をそのまま読み上げる。`status: error` は `text` があれば読み上げ、空なら定型音声。
+- `status: declined` は `text` をそのまま読み上げる。`status: error` は `text` があれば読み上げる。返事が空か空白だけなら `reply_error` の定型音声を使う。
 
 ### 7.2 発話 1 回の流れ
 
@@ -383,7 +385,7 @@ HTTP の形式を検証してから、[webhook ブリッジ仕様 §3](BRIDGE_WE
 3. `listen_stop`: `state{thinking}`。300 ms 未満なら `error{no_speech}` → `state{idle}`。
 4. STT。失敗 → `stt_failed`。結果が空白だけ → `no_speech`。
 5. bridge の `send_utterance`。webhook は registry に `pending` を作ってから送る。送信失敗 → `pending` なら `cancelled` にし、先に返信が届いていても再生せず `bridge_unavailable`。
-6. 返事を待つ。webhook は `created_at` から `GROKWATCH_REPLY_TIMEOUT_S`（既定 90 秒）まで。POST の受付後も同じ `expires_at` を使う。期限に達したら `expired` にして `bridge_timeout`。
+6. 返事を待つ。webhook は `created_at` から `GROKWATCH_REPLY_TIMEOUT_S`（既定 90 秒）まで。POST の送信と返信待ちには同じ `expires_at` と registry の時計を使う。POST が未完了でも期限に達したら中断し、`pending` は `expired` にして `bridge_timeout` に進む。
 7. `status: error` なら `state{error}` と `error{reply_error}` を先に送る。TTS → `state{speaking}`・`tts_start`・音声・`tts_end`・`state{idle}`。TTS 失敗 → `tts_failed`。
 8. どの段階でも `cancel` または切断が来たら、STT・TTS のサブプロセスを止め、registry に `pending` があれば `cancelled` にし、音声の送出をやめて `state{idle}`（切断時は送らない）。
 
@@ -500,7 +502,7 @@ class Bridge(Protocol):
 | D7 | 再生フレームが途切れると 100 ms 後から減衰し、さらに 200 ms 以内に `level = 0` | `audio_level_decays_when_audio_stops` |
 | D8 | VAD は RMS 499 を無音、500 を発話と判定する。発話後の無音 59 フレームでは止めず、60 フレーム目で止める | `vad_thresholds` |
 
-### E. core: 再接続・設定・プロトコル（`test_backoff.cpp`、`test_link_supervisor.cpp`、`test_config.cpp`、`test_protocol.cpp`、`test_core_isolation`）
+### E. core: 再接続・設定・プロトコル（`test_backoff.cpp`、`test_link_supervisor.cpp`、`test_config.cpp`、`test_protocol.cpp`、`check_core_includes`）
 
 | # | GREEN when | テスト |
 | --- | --- | --- |
@@ -511,7 +513,7 @@ class Bridge(Protocol):
 | E5 | gateway 停止（WS 切断）中はバックオフ間隔で再接続を試み、間隔より早く試さない | `gateway_down_retries_on_backoff_schedule` |
 | E6 | 25 秒無受信で切断とみなす。24.9 秒ではみなさない。10 秒ごとに `ping` を出す | `ping_interval_and_timeout` |
 | E7 | `auth_error` 後は 30 秒間隔で再試行し、Disconnected のまま | `auth_error_retries_every_30s` |
-| E8 | 有効な NVS の値が Kconfig より優先される。キーなし・読み取り準備失敗は Kconfig、必須設定が空なら「設定なし」で接続しない。既定ポートは 8765 | `config_precedence_and_missing` |
+| E8 | 必須設定が空なら「設定なし」で接続しない。既定ポートは 8765 | `config_required_values_and_default_port` |
 | E9 | 全メッセージのエンコード結果が 6.1 の形（キー名・型）と一致し、デコードで元に戻る | `protocol_roundtrip_all_types` |
 | E10 | 壊れた JSON、`type` なし、必須フィールドの欠落・型違い、入れ子、配列、浮動小数点、4,097 バイト、不正な UTF-8・エスケープはデコード失敗。4,096 バイトの妥当な JSON と正しい Unicode エスケープは受理 | `protocol_rejects_malformed` |
 | E11 | 未知の `type` は「未知」として返り、エラーにならない | `protocol_unknown_type_is_ignorable` |
@@ -521,7 +523,7 @@ class Bridge(Protocol):
 | E15 | core が `-fno-exceptions -fno-rtti -Wall -Wextra -Werror` で警告なくビルドでき、ASan / UBSan 付きで全テストが通る | ctest の `host_test_sanitizers` 構成（CI ジョブ） |
 | E16 | TTS の 14 フレームでは再生を開始せず、15 フレームで開始する。15 未満でも `tts_end` で残りを再生し、バッファが空になると完了する | `playback_buffer_threshold_and_short_reply` |
 
-### F. gateway: WebSocket と認証（`gateway/tests/test_ws_auth.py`、`test_ws_session.py`）
+### F. gateway: WebSocket と認証（`gateway/tests/test_ws.py`）
 
 | # | GREEN when | テスト |
 | --- | --- | --- |
@@ -536,7 +538,7 @@ class Bridge(Protocol):
 | F9 | 30 秒（短縮）無通信で 4005 で閉じ、進行中の発話は `cancelled` | `test_idle_connection_closed_4005` |
 | F10 | `ping{t}` に同じ `t` の `pong` を返す | `test_ping_pong` |
 | F11 | 認証後の未知の `type` は無視され、接続は続く。壊れた JSON は `error{bad_message}` で接続は続く | `test_unknown_type_ignored_bad_json_reported` |
-| F12 | 4,096 バイトを超えるテキストフレームは `error{bad_message}` で捨てる | `test_oversized_text_frame` |
+| F12 | 4,096 バイト超のテキストは認証前に 4003、認証後に `bad_message`。パーサー側で超過を検出した場合は認証後も 4003 で閉じる | `test_oversized_text_frame`、`test_parser_oversize_uses_v1_error_path` |
 | F13 | 640 バイト以外のバイナリは捨てられ、`error{bad_frame}` は 1 発話に 1 回だけ。発話は続く | `test_bad_frame_reported_once` |
 | F14 | `listen_start` 前と `listen_stop` 後のバイナリは発話に含まれない | `test_frames_outside_listening_ignored` |
 | F15 | 749 フレームでは収音中、750 フレーム目で自動で `state{thinking}` になり、751 フレーム目と後着の `listen_stop` で STT は再起動しない | `test_listen_max_750_frames` |
@@ -550,7 +552,7 @@ class Bridge(Protocol):
 | G3 | STT 結果が空・空白だけなら `no_speech`、bridge を呼ばない | `test_empty_transcript_is_no_speech` |
 | G4 | STT 失敗で `state{error}` → `error{stt_failed,retryable:true}` → 定型音声 → `state{idle}`。bridge を呼ばない | `test_stt_failure_flow` |
 | G5 | bridge の `BridgeUnavailable` で `bridge_unavailable` と定型音声「いま伝書鳩につながらないみたい」の PCM が送られる | `test_bridge_unavailable_flow` |
-| G6 | webhook の未返信を模擬し、POST が遅れて 200 を返しても期限は `created_at` 起点のまま。期限で `expired`、`bridge_timeout` → 定型音声 → Idle | `test_reply_timeout_flow` |
+| G6 | webhook の POST が未完了のまま `created_at` 起点の期限に達したら `expired`、`bridge_timeout`、定型音声、Idle の順に進む | `test_webhook_timeout_uses_created_at` |
 | G7 | Thinking 中の `cancel` で `state{idle}` を返す。STT 中ならプロセスが終了して bridge 呼び出しは 0 回、返信待ちなら `pending` が `cancelled` になる | `test_cancel_during_thinking` |
 | G8 | Speaking 中の `cancel` で、注入した時刻で 100 ms 以内に音声送出を停止する。`tts_end` は送らず `state{idle}` を返す。受理済みの返信は `answered` のまま | `test_cancel_during_speaking_stops_audio` |
 | G9 | 切断で進行中の発話が `cancelled` になり、サブプロセスが残らない | `test_disconnect_cancels_inflight` |
@@ -560,7 +562,7 @@ class Bridge(Protocol):
 | G13 | `tts_start` の後の最初の最大 10 フレームは待機なし、以後は注入時計で 20 ms ごとに 1 フレーム。すべて 640 バイトで、最後の端数はゼロ埋めする | `test_tts_framing_and_pacing` |
 | G14 | 定型音声は起動時に 1 回だけ合成され、以後はキャッシュを使う。TTS が起動時に失敗しても起動でき、失敗時は音声なしで Error → Idle | `test_canned_audio_cache_and_fallback` |
 
-### H. gateway: `/v1/reply`（`gateway/tests/test_reply_server.py`）
+### H. gateway: `/v1/reply`（`gateway/tests/test_reply.py`）
 
 HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に計算する。リクエスト送信前の UTF-8 バイト列に署名する。
 
@@ -582,9 +584,9 @@ HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に�
 | H14 | 署名の比較に `hmac.compare_digest` を使う | `test_signature_compare_constant_time` |
 | H15 | `/healthz` は 200 と §7.3 のキー・型を返し、秘密・ホスト名・パスのダミー値を含まない。webhook の URL またはキーがない構成は起動し、`degraded` と `bridge.available: false` を返す | `test_healthz_shape_and_no_secrets` |
 | H16 | 返信口は既定で `127.0.0.1:8767` にバインドする。別ポートは指定でき、非ループバックの指定では起動を拒む | `test_reply_listen_default_loopback` |
-| H17 | 同一 `pending` に同時に 2 件送ると、`accepted` は 1 件、もう一方は同一 body で `duplicate`、別 body で 409。取消が先に確定した場合は 410。会話への引き渡しは受理時の 1 回だけ | `test_reply_registry_terminal_transition` |
+| H17 | 同一 `pending` に同時に 2 件送ると、`accepted` は 1 件、もう一方は同一 body で `duplicate`、別 body で 409。取消が先なら 410。受理が先なら後から取消しても受理済みのまま。会話への引き渡しは受理時の 1 回だけ | `test_simultaneous_terminal_transition`、`test_reply_and_cancel_follow_first_terminal_transition` |
 
-### I. gateway: STT・TTS・設定・ログ（`test_stt.py`、`test_tts.py`、`test_config.py`、`test_logging.py`）
+### I. gateway: STT・TTS・設定・ログ（`gateway/tests/test_providers.py`、`test_logging.py`）
 
 | # | GREEN when | テスト |
 | --- | --- | --- |
@@ -601,7 +603,7 @@ HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に�
 | I11 | 設定なしと `GROKWATCH_LOG_TEXT=0` では発話・返事の本文がログに出ず、`1` で伏字処理後の本文が出る。音声データはいずれでも出ない | `test_log_text_toggle` |
 | I12 | ログの各行が JSON として読め、`event`・`request_id`・`latency_ms` を持つ | `test_log_lines_are_json` |
 
-### J. bridge（`bridge/tests/test_contract.py`、`test_webhook.py`、`test_gbot_cli.py`、`test_mock.py`）
+### J. bridge（`bridge/tests/test_adapters.py`）
 
 | # | GREEN when | テスト |
 | --- | --- | --- |
@@ -643,7 +645,7 @@ HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に�
 | K13 | gateway 再起動: 偽デバイスが core と同じバックオフ表（ジッター 0、短縮倍率）で再接続し、再認証して `hello_ok`。再起動前の発話の返事は届いても読み上げない（404） | `test_gateway_restart_reconnect` |
 | K14 | 発話中に偽デバイスが切断 → 再接続: 古い発話は `cancelled`、新しい発話は正常に通る | `test_device_drop_mid_turn` |
 | K15 | `/healthz` が mock 構成で `ok`、`device_connected` が接続に合わせて変わる | `test_healthz_during_roundtrip` |
-| K16 | 全シナリオのログに、テストで設定した秘密の値が 1 つも出ない | `test_e2e_logs_have_no_secrets` |
+| K16 | 全シナリオの標準出力・標準エラーにトークン、送信キー、署名、URL が出ない | `test_mock_roundtrip.py` の `gateway` fixture |
 
 ### L. ファームビルド・CI・リポジトリ（`.github/workflows/ci.yml`、`tests/repo/`）
 
@@ -658,9 +660,9 @@ HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に�
 | L7 | すべての workflow の `permissions` が `contents: read` だけで、`pull_request_target` がなく、`uses:` がコミット SHA で固定 | `tests/repo/test_workflows.py::test_permissions_and_pinning` |
 | L8 | `sdkconfig.defaults` と `Kconfig.projbuild` の Wi-Fi・ホスト・トークンの既定値が空 | `tests/repo/test_firmware_config.py::test_no_secret_defaults` |
 | L9 | `.gitignore` が `sdkconfig.local.defaults`・`build*/`・`managed_components/`・`.env` を含み、それらが追跡されていない | `tests/repo/test_gitignore.py::test_local_files_ignored` |
-| L10 | GrokWatch 側ファームのソースにフラッシュ消去、NVS 値の書き込み・消去の API 呼び出しがない。設定を読み出す際の NVS は読み取り専用で開く | `tests/repo/test_firmware_config.py::test_no_flash_erase_calls` |
+| L10 | ファームは NVS を使わない（読み取り・書き込みともなし）。`firmware/main` と core に `nvs_*` の呼び出し、および `esp_partition_*`、`spi_flash_*`、`esp_flash_*` の消去・書き込み呼び出しがない | `tests/repo/test_firmware_config.py::test_no_nvs_or_flash_mutation_calls` |
 | L11 | ファームのソースの `ESP_LOG*` 呼び出しの引数に `password`・`token`・`ssid` を含む識別子がない | `tests/repo/test_firmware_config.py::test_no_secret_logging` |
-| L12 | 形式許可リストで画像・動画と対象外の形式の追跡を拒む。既存検査が許可する形式に、実装に必要なソース・ビルド設定・lock の形式やパスだけを追加する | `tests/repo/test_assets.py::test_asset_allowlist` |
+| L12 | 形式許可リストで画像・動画と対象外の形式の追跡を拒む。CSV・lock・defaults は `firmware/partitions.csv`、`uv.lock`、`firmware/dependencies.lock`、`firmware/sdkconfig.defaults` のみ許可する | `tests/repo/test_assets.py::test_asset_allowlist` |
 
 素材や顔データの出所・権利、形式不明の Agent ID、個人情報は公開前の差分目視でも確認する（[AGENTS.md](../AGENTS.md)、[LESSONS.md](../LESSONS.md)）。
 
@@ -676,10 +678,11 @@ Phase 5 の端末確認は、対象と影響の承認を得てから進める。
 - タッチ座標と画面座標の対応、ジェスチャーのしきい値（tap 300 ms、long press 600 ms、12 px、800 ms 間隔）の手触り。タッチが途切れたときに解放を取得でき、再押下が正しく反応するか。
 - マイクの感度とノイズ、VAD のしきい値（RMS 500、無音 1,200 ms、5 秒）の妥当性。
 - スピーカーの音量・歪み・日本語の聞き取りやすさ、再生バッファ 300 ms で途切れないか。Speaking 中にマイクが自分の声を拾わないか。
+- 通信停止後に音声がまとめて届いても、再生バッファ満杯で切断せず、最古のフレームを捨てて破棄数を記録するか。
 - Speaking のリングが声に合って見えるか（振幅の換算 6000、平滑化の値）。
 - 各状態の見分けやすさ（Listening と Thinking、Error と Disconnected）。
 - 音声応答中・Wi-Fi 切断中のタッチで、視線が追従し状態表示が保たれるか。
-- 実際の AP の切断・復帰、gateway の再起動からの復旧、長時間（数時間）の連続稼働でのメモリリークと再接続。
+- NVS 無効での Wi-Fi 初期化と接続、実際の AP の切断・復帰、gateway の再起動からの復旧、長時間（数時間）の連続稼働でのメモリリークと再接続。
 - AMOLED の休止・復帰、消費電力、電池の持ち、発熱。
 - パーティション配置と元の NVS・工場データとの整合、書き込み前のフル バックアップ、失敗時の復旧手順（全面消去しない）。
 
