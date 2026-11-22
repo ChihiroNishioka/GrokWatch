@@ -7,7 +7,7 @@ if(NOT DEFINED SDKCONFIG_DEFAULTS AND "$ENV{SDKCONFIG_DEFAULTS}" STREQUAL "")
     endif()
 endif()
 
-set(PROJECT_VER "1.2.0")
+set(PROJECT_VER "1.2.1")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(grokwatch)
 

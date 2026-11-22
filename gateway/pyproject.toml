@@ -1,6 +1,6 @@
 [project]
 name = "grokwatch-gateway"
-version = "1.2.0"
+version = "1.2.1"
 requires-python = ">=3.11"
 dependencies = ["aiohttp>=3.12,<4", "grokwatch-bridge"]
 

@@ -291,7 +291,7 @@ async def test_healthz_and_secrets_not_logged(tmp_path, capsys):
     async with realtime(tmp_path, scripts) as (_, config, client, base, fake, _, _):
         async with client.get(fake.reply_base + "/healthz") as response:
             body = await response.json()
-        assert body["bridge"] == {"name": "realtime", "available": True} and body["version"] == "1.2.0"
+        assert body["bridge"] == {"name": "realtime", "available": True} and body["version"] == "1.2.1"
         assert config.openai_api_key not in json.dumps(body)
         async with connected(client, base, config) as device:
             await talk(device)
@@ -367,3 +367,18 @@ def test_slow_helper_fills_cache_after_tool_timeout(tmp_path, monkeypatch):
     assert first == {"error": "timeout"}
     assert second["messages"][0]["subject"] == "資料の件"
     assert len(helper_calls(helper)) == 1
+
+
+def test_server_error_before_turn_is_logged():
+    """An error event outside a turn (e.g. a rejected session.update) is logged with type/code/param only."""
+    from types import SimpleNamespace
+    from grokwatch_gateway.realtime import RealtimeSession
+
+    logged = []
+    session = RealtimeSession(SimpleNamespace(), lambda event, **kw: logged.append((event, kw)), lambda: 0,
+                              tools=object())
+    session.log_server_error({"type": "error", "error": {"type": "invalid_request_error",
+                                                          "code": "unknown_parameter", "param": "session.x",
+                                                          "message": "secret text"}})
+    assert logged == [("realtime_server_error", {"level": "warning",
+                                                 "code": "invalid_request_error:unknown_parameter:session.x"})]

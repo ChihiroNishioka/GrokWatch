@@ -97,7 +97,7 @@ def create_gateway(config, *, stt=None, wake_stt=None, tts=None, bridge=None, cl
             status="ok" if available else "degraded",
             bridge=dict(name=name, available=available),
             stt=config.stt_name, tts=config.tts_name,
-            device_connected=gateway.device_connected, wake=config.wake, version="1.2.0",
+            device_connected=gateway.device_connected, wake=config.wake, version="1.2.1",
         ))
 
     ws_app.on_startup.append(startup)

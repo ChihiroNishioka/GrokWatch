@@ -299,7 +299,7 @@ async def test_healthz_shape_and_no_secrets(missing):
             assert await response.json() == {
                 "status": "ok" if missing is None else "degraded",
                 "bridge": {"name": "webhook", "available": missing is None},
-                "stt": "mock", "tts": "mock", "device_connected": False, "wake": False, "version": "1.2.0",
+                "stt": "mock", "tts": "mock", "device_connected": False, "wake": False, "version": "1.2.1",
             }
             response_body = await response.text()
             assert all(value not in response_body for value in (key, url, config.device_token))

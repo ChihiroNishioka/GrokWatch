@@ -8,7 +8,7 @@ import AppKit
 import EventKit
 import Foundation
 
-let toolVersion = "1.2.0"
+let toolVersion = "1.2.1"
 let maxEvents = 30
 let mailScanCap = 200
 

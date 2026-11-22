@@ -296,4 +296,4 @@ async def test_healthz_reports_wake():
     async with gateway(wake=True) as (_, _, client, _, reply_base):
         async with client.get(reply_base + "/healthz") as response:
             body = await response.json()
-            assert body["wake"] is True and body["version"] == "1.2.0"
+            assert body["wake"] is True and body["version"] == "1.2.1"
