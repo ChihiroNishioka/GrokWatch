@@ -214,7 +214,16 @@ constexpr MessageName names[] = {
     {Type::Error, "error"},
     {Type::Ping, "ping"},
     {Type::Pong, "pong"},
+    {Type::WakeStart, "wake_start"},
+    {Type::WakeStop, "wake_stop"},
+    {Type::Wake, "wake"},
 };
+
+template <typename T>
+bool optionalType(const Message& message, std::string_view key) {
+    const auto* value = find(message.fields, key);
+    return !value || std::get_if<T>(value);
+}
 
 bool hasFields(const Message& message) {
     switch (message.type) {
@@ -223,7 +232,7 @@ bool hasFields(const Message& message) {
                 && std::get_if<std::string>(find(message.fields, "token"))
                 && std::get_if<std::string>(find(message.fields, "fw"));
         case Type::HelloOk:
-            return message.integer("v") == 1;
+            return message.integer("v") == 1 && optionalType<bool>(message, "wake");
         case Type::AuthError: {
             const auto code = message.string("code");
             return code == "bad_token" || code == "unsupported_version";
@@ -237,7 +246,13 @@ bool hasFields(const Message& message) {
                 || state == "speaking" || state == "error";
         }
         case Type::TtsStart:
-            return message.integer("sample_rate") == 16000;
+            return message.integer("sample_rate") == 16000 &&
+                   optionalType<std::string>(message, "emotion");
+        case Type::WakeStart:
+        case Type::WakeStop:
+            return message.integer("seq").value_or(0) > 0;
+        case Type::Wake:
+            return message.integer("seq").value_or(0) > 0 && message.boolean("hit").has_value();
         case Type::Error:
             return std::get_if<std::string>(find(message.fields, "code"))
                 && message.boolean("retryable").has_value();

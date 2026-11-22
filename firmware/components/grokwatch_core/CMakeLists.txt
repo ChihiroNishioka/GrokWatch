@@ -1,6 +1,6 @@
 set(sources src/avatar_state.cpp src/audio_level.cpp src/link_supervisor.cpp src/protocol.cpp
             src/gesture.cpp src/gaze.cpp src/blink.cpp src/drift.cpp src/face_model.cpp
-            src/volume.cpp src/avatar_scale.cpp)
+            src/volume.cpp src/avatar_scale.cpp src/expression.cpp src/wake.cpp)
 if(ESP_PLATFORM)
     idf_component_register(SRCS ${sources} INCLUDE_DIRS include)
     set(core_target ${COMPONENT_LIB})

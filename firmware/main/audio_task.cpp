@@ -14,7 +14,7 @@ using grokwatch::sampleRate;
 
 void captureFault(App& app, unsigned epoch) {
     Lock lock(app.mutex);
-    if (app.capturing && app.captureEpoch == epoch) app.audioFault = true;
+    if ((app.capturing || app.wakeListening) && app.captureEpoch == epoch) app.audioFault = true;
 }
 
 class Capture {
@@ -208,7 +208,7 @@ void audioTask(void* context) {
         std::uint8_t volume;
         {
             Lock lock(app.mutex);
-            capturing = app.capturing;
+            capturing = app.capturing || app.wakeListening;
             captureEpoch = app.captureEpoch;
             canPlay = app.canPlay;
             playbackEpoch = app.playbackEpoch;

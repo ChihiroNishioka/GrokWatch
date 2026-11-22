@@ -18,6 +18,9 @@ _FIELDS = {
     "state": {"state": str},
     "tts_start": {"sample_rate": int},
     "tts_end": {},
+    "wake_start": {"seq": int},
+    "wake_stop": {"seq": int},
+    "wake": {"seq": int, "hit": bool},
     "error": {"code": str, "retryable": bool},
     "ping": {"t": int},
     "pong": {"t": int},
@@ -40,6 +43,10 @@ def decode(frame):
                 value.encode("utf-8")
         if data["type"] in {"listen_start", "cancel"} and "session" in data:
             number = data["session"]
+            if type(number) is not int or not 1 <= number <= 2**63 - 1:
+                return None
+        if data["type"] in {"wake_start", "wake_stop"}:
+            number = data.get("seq")
             if type(number) is not int or not 1 <= number <= 2**63 - 1:
                 return None
         if any(type(data.get(field)) is not kind for field, kind in _FIELDS.get(data["type"], {}).items()):

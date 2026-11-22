@@ -22,12 +22,16 @@ class EventLog:
         self.tokens = tokens
 
     def __call__(self, event, *, level="info", request_id=None, state=None, http_status=None,
-                 latency_ms=None, chars=None, code=None, emotion=None, text=None):
+                 latency_ms=None, chars=None, code=None, emotion=None, text=None, hit=None, frames=None):
         record = dict(ts=datetime.now(timezone.utc).isoformat(), level=level, event=event,
                       request_id=request_id, state=state, http_status=http_status,
                       latency_ms=latency_ms, chars=chars, code=code)
         if emotion is not None:
             record["emotion"] = emotion
+        if hit is not None:
+            record["hit"] = hit
+        if frames is not None:
+            record["frames"] = frames
         if self.log_text and text is not None:
             record["text"] = text
         redactions = sorted(self.redactions.union(self.tokens()), key=len, reverse=True)

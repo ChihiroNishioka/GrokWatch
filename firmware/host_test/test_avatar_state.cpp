@@ -43,7 +43,7 @@ TEST(listening_long_press_sends_listen_stop) {
     auto effect = avatar.longPress(1000);
     CHECK_EQ(effect.send, Command::ListenStop);
     CHECK(effect.stopCapture);
-    CHECK_EQ(makeFace(avatar.state()).ring.kind, RingKind::None);
+    CHECK_EQ(makeFace(avatar.state()).ring.kind, RingKind::Arc);
     avatar.remote(State::Thinking, 1100);
     CHECK_EQ(avatar.state(), State::Thinking);
 }
@@ -272,4 +272,42 @@ TEST(delayed_numbered_error_does_not_stop_new_capture) {
     CHECK_EQ(avatar.state(), State::Listening);
     avatar.error(true, true, 1030, oldSession);
     CHECK_EQ(avatar.state(), State::Listening);
+}
+
+TEST(wake_starts_listening_only_from_idle) {
+    AvatarStateMachine avatar;
+    avatar.hello(0);
+    const auto effect = avatar.wake(10);
+    CHECK_EQ(avatar.state(), State::Listening);
+    CHECK_EQ(effect.send, Command::ListenStart);
+    CHECK(effect.startCapture);
+    CHECK_EQ(avatar.sessionNumber(), 1);
+
+    const auto again = avatar.wake(20);
+    CHECK_EQ(again.send, Command::None);
+    CHECK(!again.startCapture);
+    CHECK_EQ(avatar.sessionNumber(), 1);
+
+    for (auto other : {AvatarStateMachine{}, thinking(), speaking()}) {
+        const auto before = other.state();
+        const auto none = other.wake(5000);
+        CHECK_EQ(none.send, Command::None);
+        CHECK(!none.startCapture && !none.stopCapture && !none.dropPlayback);
+        CHECK_EQ(other.state(), before);
+    }
+    auto errored = thinking();
+    errored.error(false, true, 100);
+    CHECK_EQ(errored.state(), State::Error);
+    CHECK_EQ(errored.wake(200).send, Command::None);
+    CHECK_EQ(errored.state(), State::Error);
+}
+
+TEST(wake_listening_behaves_like_long_press_listening) {
+    AvatarStateMachine avatar;
+    avatar.hello(0);
+    avatar.wake(0);
+    CHECK_EQ(avatar.recorded(20, 600).send, Command::None);
+    CHECK_EQ(avatar.tick(5000).send, Command::None);
+    CHECK_EQ(avatar.longPress(6000).send, Command::ListenStop);
+    CHECK_EQ(avatar.state(), State::Thinking);
 }

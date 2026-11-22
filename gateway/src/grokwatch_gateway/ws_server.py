@@ -7,10 +7,13 @@ from aiohttp import WSCloseCode, WSMsgType, web
 from grokwatch_bridge.contract import Session
 
 from .conversation import Conversation, ConversationTurn
-from .protocol import FRAME_BYTES, MAX_FRAMES, MAX_TEXT_BYTES, decode
+from .audio import SttError
+from .protocol import FRAME_BYTES, MAX_FRAMES, MAX_TEXT_BYTES, MIN_FRAMES, decode
+from .wake import compile_pattern, is_wake
 
 
 MAX_WS_MESSAGE_BYTES = MAX_TEXT_BYTES + 64
+MAX_WAKE_FRAMES = 125
 
 
 class DeviceSocket(web.WebSocketResponse):
@@ -42,6 +45,10 @@ class DeviceSession:
         self.cleanup = None
         self.retired = False
         self.bad_frame = False
+        self.wake_capture = None
+        self.wake_seq = None
+        self.wake_task = None
+        self.wake_cleanup = None
 
     @staticmethod
     async def finish_cancel(task):
@@ -49,13 +56,57 @@ class DeviceSession:
         with suppress(asyncio.CancelledError, ConnectionError):
             await task
 
+    async def cancel_wake(self):
+        self.wake_capture = None
+        if self.wake_task is not None:
+            self.wake_cleanup = asyncio.create_task(self.finish_cancel(self.wake_task))
+            self.wake_task = None
+        if self.wake_cleanup is not None:
+            await asyncio.shield(self.wake_cleanup)
+
     async def cancel(self):
         self.capture = None
+        self.wake_capture = None
+        wake = asyncio.create_task(self.cancel_wake())
         if self.task is not None:
             self.cleanup = asyncio.create_task(self.finish_cancel(self.task))
             self.task = None
-        if self.cleanup is not None:
-            await asyncio.shield(self.cleanup)
+        try:
+            if self.cleanup is not None:
+                await asyncio.shield(self.cleanup)
+        finally:
+            await asyncio.shield(wake)
+
+    async def wake_start(self, seq):
+        if self.capture is not None:
+            return
+        await self.cancel_wake()
+        if self.retired:
+            return
+        self.wake_seq = seq
+        self.wake_capture = bytearray()
+
+    async def wake_stop(self, seq):
+        if self.wake_capture is None or seq != self.wake_seq:
+            return
+        pcm = bytes(self.wake_capture)
+        self.wake_capture = None
+        self.wake_task = asyncio.create_task(self.wake_check(seq, pcm, self.task is not None and not self.task.done()))
+
+    async def wake_check(self, seq, pcm, busy):
+        started = self.server.clock()
+        frames = len(pcm) // FRAME_BYTES
+        hit, text = False, None
+        if not busy and frames >= MIN_FRAMES:
+            try:
+                text = await self.server.wake_stt(pcm)
+                hit = is_wake(text, self.server.wake_pattern)
+            except SttError:
+                text = None
+        self.server.log("wake_check", hit=hit, frames=frames, text=text,
+                        latency_ms=max(0, round((self.server.clock() - started) * 1000)))
+        if not self.retired:
+            await self.ws.send_json({"type": "wake", "seq": seq, "hit": hit})
 
     async def start(self, number):
         await self.cancel()
@@ -79,6 +130,9 @@ class DeviceSession:
     async def handle(self, frame):
         if frame.type == WSMsgType.BINARY:
             if self.capture is None:
+                if self.wake_capture is not None and len(frame.data) == FRAME_BYTES \
+                        and len(self.wake_capture) < FRAME_BYTES * MAX_WAKE_FRAMES:
+                    self.wake_capture.extend(frame.data)
                 return
             if len(frame.data) != FRAME_BYTES:
                 if not self.bad_frame:
@@ -109,6 +163,10 @@ class DeviceSession:
                 await self.cancel()
                 if not self.retired:
                     await self.conversation.state("idle", self.turn)
+            case "wake_start" if self.server.config.wake:
+                await self.wake_start(data["seq"])
+            case "wake_stop" if self.server.config.wake:
+                await self.wake_stop(data["seq"])
             case "ping":
                 await self.ws.send_json({"type": "pong", "t": data["t"]})
             case "pong" | "error":
@@ -118,7 +176,7 @@ class DeviceSession:
 
 
 class WebSocketServer:
-    def __init__(self, config, stt, tts, bridge, canned, log, clock, sleep, pace_clock):
+    def __init__(self, config, stt, tts, bridge, canned, log, clock, sleep, pace_clock, wake_stt=None):
         self.config = config
         self.stt = stt
         self.tts = tts
@@ -128,6 +186,8 @@ class WebSocketServer:
         self.clock = clock
         self.sleep = sleep
         self.pace_clock = pace_clock
+        self.wake_stt = wake_stt
+        self.wake_pattern = compile_pattern(config.wake_pattern)
         self.active = None
         self.connections = set()
         self.lock = asyncio.Lock()
@@ -188,7 +248,7 @@ class WebSocketServer:
                     await old.cancel()
                     await old.ws.close(code=4004)
                 self.active = device
-                await ws.send_json({"type": "hello_ok", "v": 1})
+                await ws.send_json({"type": "hello_ok", "v": 1, **({"wake": True} if self.config.wake else {})})
             while True:
                 try:
                     frame = await ws.receive(timeout=self.config.idle_timeout)

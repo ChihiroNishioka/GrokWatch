@@ -31,6 +31,9 @@ enum class Type {
     Error,
     Ping,
     Pong,
+    WakeStart,
+    WakeStop,
+    Wake,
 };
 
 using Value = std::variant<std::string, std::int64_t, bool>;

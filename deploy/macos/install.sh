@@ -8,10 +8,11 @@ readonly SCRIPT_DIR
 BRIDGE='webhook'
 REPO_DIR="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 WHISPER_MODEL=''
+WAKE=0
 DRY_RUN=0
 
 usage() {
-	printf '%s\n' 'Usage: install.sh [--bridge mock|webhook] [--repo PATH] [--whisper-model PATH] [--dry-run]'
+	printf '%s\n' 'Usage: install.sh [--bridge mock|webhook] [--repo PATH] [--whisper-model PATH] [--wake] [--dry-run]'
 }
 
 while (($#)); do
@@ -30,6 +31,10 @@ while (($#)); do
 			(($# >= 2)) || { usage >&2; exit 64; }
 			WHISPER_MODEL=$2
 			shift 2
+			;;
+		--wake)
+			WAKE=1
+			shift
 			;;
 		--dry-run)
 			DRY_RUN=1
@@ -130,12 +135,13 @@ from pathlib import Path
 import sys
 from xml.sax.saxutils import escape
 
-source, home, repo, bridge, model = sys.argv[1:]
+source, home, repo, bridge, model, wake = sys.argv[1:]
 replacements = {
     "@HOME@": escape(home),
     "@REPO@": escape(repo),
     "@BRIDGE@": escape(bridge),
     "@WHISPER_MODEL@": escape(model),
+    "@WAKE@": escape(wake),
 }
 text = Path(source).read_text(encoding="utf-8")
 for key, value in replacements.items():
@@ -144,7 +150,7 @@ if any(key in text for key in replacements):
     raise SystemExit("Unexpanded plist placeholder")
 sys.stdout.write(text)
 ' "$SCRIPT_DIR/com.grokwatch.gateway.plist.template" \
-	"$HOME_DIR" "$REPO_DIR" "$BRIDGE" "$WHISPER_MODEL")
+	"$HOME_DIR" "$REPO_DIR" "$BRIDGE" "$WHISPER_MODEL" "$WAKE")
 
 if [[ -f $plist_path ]] && cmp -s <(printf '%s\n' "$plist_text") "$plist_path"; then
 	if ((job_loaded)); then

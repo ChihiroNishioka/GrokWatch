@@ -25,6 +25,7 @@ public:
     Effects hello(Millis now);
     Effects linkDown(Millis now);
     Effects longPress(Millis now);
+    Effects wake(Millis now);
     Effects touch(const GestureEvent& gesture, Millis now);
     Effects remote(State state, Millis now, std::optional<std::int64_t> session = {});
     std::int64_t sessionNumber() const { return sessionNumber_; }
@@ -39,6 +40,7 @@ private:
     bool acceptsSession(std::optional<std::int64_t> session) const;
     void enter(State state, Millis now);
     void clearPlayback();
+    Effects startListening(Millis now);
     Effects stopListening(Millis now);
     Effects enterError(Millis now);
 

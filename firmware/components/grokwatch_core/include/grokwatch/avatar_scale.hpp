@@ -18,6 +18,8 @@ struct DrawnRing {
     double width;
     std::uint32_t color;
     int segments;
+    double start;
+    double sweep;
 };
 
 struct DrawnFace {

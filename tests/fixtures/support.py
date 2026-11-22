@@ -80,14 +80,14 @@ def process_gone(path):
 
 
 @asynccontextmanager
-async def gateway(*, bridge=None, stt=None, tts=None, clock=time.time, sleep=asyncio.sleep, pace_clock=time.monotonic,
+async def gateway(*, bridge=None, stt=None, wake_stt=None, tts=None, clock=time.time, sleep=asyncio.sleep, pace_clock=time.monotonic,
                   port=0, test_device_token=None, **settings):
     from grokwatch_gateway.__main__ import create_gateway
     from grokwatch_gateway.config import Config
 
     config = Config(device_token=test_device_token or secrets.token_urlsafe(32), gateway_host="127.0.0.1",
                     gateway_port=port, reply_port=0, **settings)
-    instances = create_gateway(config, stt=stt, tts=tts, bridge=bridge, clock=clock, sleep=sleep, pace_clock=pace_clock)
+    instances = create_gateway(config, stt=stt, wake_stt=wake_stt, tts=tts, bridge=bridge, clock=clock, sleep=sleep, pace_clock=pace_clock)
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as client:
         async with serve(instances.reply_app) as reply_base:
             instances.set_reply_url(reply_base + "/v1/reply")
@@ -131,6 +131,13 @@ class Device:
                     return messages
                 assert isinstance(msg, (dict, bytes)), messages
 
+    async def wake(self, seq, frames=15, pcm=b"\0" * 640, stop=True):
+        await self.send("wake_start", seq=seq)
+        for _ in range(frames):
+            await self.ws.send_bytes(pcm)
+        if stop:
+            await self.send("wake_stop", seq=seq)
+
     async def idle(self):
         return await self.until({"type": "state", "state": "idle"})
 
@@ -140,5 +147,5 @@ async def connected(client, ws_base, config):
     async with client.ws_connect(ws_base + "/v1/ws") as ws:
         device = Device(ws)
         await device.hello(config.device_token)
-        assert await device.receive() == {"type": "hello_ok", "v": 1}
+        assert await device.receive() == {"type": "hello_ok", "v": 1} | ({"wake": True} if config.wake else {})
         yield device

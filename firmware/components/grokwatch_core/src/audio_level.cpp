@@ -14,8 +14,16 @@ double rawLevel(double amplitude) {
     return std::clamp(amplitude / 6000, 0.0, 1.0);
 }
 
+double micRawLevel(double amplitude) {
+    return std::clamp((amplitude - 400) / 2600, 0.0, 1.0);
+}
+
 void AudioLevel::frame(Millis now, double amplitude) {
-    const auto target = rawLevel(amplitude);
+    frameRaw(now, rawLevel(amplitude));
+}
+
+void AudioLevel::frameRaw(Millis now, double raw) {
+    const auto target = std::clamp(raw, 0.0, 1.0);
     const auto previous = value(now);
     const auto constant = target > previous ? 30.0 : 120.0;
     level_ = previous + (target - previous) * (1 - std::exp(-20 / constant));

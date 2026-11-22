@@ -2,6 +2,9 @@
 #include "config_store.hpp"
 #include "grokwatch/link_supervisor.hpp"
 #include "grokwatch/protocol.hpp"
+#include "grokwatch/wake.hpp"
+#include "grokwatch/audio_level.hpp"
+#include "grokwatch/expression.hpp"
 #include "grokwatch/socket_event_queue.hpp"
 
 #include "esp_app_desc.h"
@@ -378,6 +381,7 @@ private:
             case LinkAction::Ready: apply(avatar_.hello(now)); break;
             case LinkAction::Ping: send({Type::Ping, {{"t", now}}}); break;
             case LinkAction::Disconnect:
+                wakeEnabled_ = false;
                 apply(avatar_.linkDown(now));
                 socket_.close();
                 ioFailed_ = false;
@@ -401,7 +405,10 @@ private:
             return;
         }
         if (!link_.ready()) {
-            if (message->type == Type::HelloOk) linkAction(link_.authenticated(now), now);
+            if (message->type == Type::HelloOk) {
+                wakeEnabled_ = config_.wakeWord && message->boolean("wake") == true;
+                linkAction(link_.authenticated(now), now);
+            }
             else if (message->type == Type::AuthError) linkAction(link_.reject(now), now);
             else ioFailed_ = true;
             return;
@@ -422,8 +429,16 @@ private:
                     resetPlayback();
                     app_.playback.start();
                     publish({});
+                    app_.face.setExpression(parseExpression(message->string("emotion")), now);
                 }
                 break;
+            case Type::Wake: {
+                const auto seq = message->integer("seq");
+                if (seq && wake_.result(*seq) && message->boolean("hit") == true) {
+                    apply(avatar_.wake(now));
+                }
+                break;
+            }
             case Type::TtsEnd:
                 if (avatar_.acceptsPlayback()) {
                     Lock lock(app_.mutex);
@@ -455,11 +470,19 @@ private:
         if (effects.startCapture) {
             ++app_.captureEpoch;
             app_.capturing = true;
+            app_.micLevel = {};
         }
         if (effects.dropPlayback) resetPlayback();
         if (effects.blink) app_.face.triggerBlink(nowMs());
         app_.state = avatar_.state();
         app_.canPlay = avatar_.canPlay();
+        // Idle listening for the wake word needs a ready link and gateway support.
+        const bool wake = link_.ready() && wakeEnabled_ && app_.state == State::Idle;
+        if (wake != app_.wakeListening) {
+            app_.wakeListening = wake;
+            ++app_.captureEpoch;
+            if (!wake) wake_.reset();
+        }
     }
 
     void apply(const Effects& effects) {
@@ -478,9 +501,12 @@ private:
         Captured frame;
         for (int i = 0; !ioFailed_ && i < 4 && xQueueReceive(app_.captured, &frame, 0) == pdTRUE; ++i) {
             bool current;
+            bool wakeFrame;
             {
                 Lock lock(app_.mutex);
-                current = app_.capturing && frame.epoch == app_.captureEpoch;
+                const bool epochMatches = frame.epoch == app_.captureEpoch;
+                current = app_.capturing && epochMatches;
+                wakeFrame = !current && app_.wakeListening && epochMatches;
             }
             if (current) {
                 if (!socket_.sendAudio(frame.pcm)) {
@@ -488,9 +514,35 @@ private:
                     return;
                 }
                 const auto now = nowMs();
-                apply(avatar_.recorded(now, rms(frame.pcm)));
+                const auto amplitude = rms(frame.pcm);
+                {
+                    Lock lock(app_.mutex);
+                    app_.micLevel.frameRaw(now, micRawLevel(amplitude));
+                }
+                apply(avatar_.recorded(now, amplitude));
+            } else if (wakeFrame) {
+                captureWake(frame.pcm);
             }
         }
+    }
+
+    // Idle capture: forward only speech segments so the gateway can check for the wake word.
+    void captureWake(const PcmFrame& pcm) {
+        const auto action = wake_.frame(pcm, rms(pcm), nowMs());
+        if (action == WakeSegmenter::Action::None) return;
+        const std::int64_t seq = wake_.sequence();
+        if (action == WakeSegmenter::Action::Start) {
+            send({Type::WakeStart, {{"seq", seq}}});
+            for (std::size_t i = 0; !ioFailed_ && i < wake_.prerollSize(); ++i) {
+                if (!socket_.sendAudio(wake_.preroll(i))) ioFailed_ = true;
+            }
+            return;
+        }
+        if (!socket_.sendAudio(pcm)) {
+            ioFailed_ = true;
+            return;
+        }
+        if (action == WakeSegmenter::Action::Stop) send({Type::WakeStop, {{"seq", seq}}});
     }
 
     bool pollPlayback() {
@@ -515,6 +567,8 @@ private:
     Backoff wifiBackoff_;
     LinkSupervisor link_;
     AvatarStateMachine avatar_;
+    WakeSegmenter wake_;
+    bool wakeEnabled_ = false;
     std::uint32_t reportedDroppedAudio_ = 0;
     bool ioFailed_ = false;
 };

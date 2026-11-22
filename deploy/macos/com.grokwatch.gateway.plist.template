@@ -42,6 +42,8 @@
 		<string>8765</string>
 		<key>GROKWATCH_WHISPER_MODEL</key>
 		<string>@WHISPER_MODEL@</string>
+		<key>GROKWATCH_WAKE</key>
+		<string>@WAKE@</string>
 	</dict>
 </dict>
 </plist>

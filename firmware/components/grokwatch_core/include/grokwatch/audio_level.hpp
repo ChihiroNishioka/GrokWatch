@@ -14,10 +14,12 @@ using PcmFrame = std::array<std::int16_t, samplesPerFrame>;
 
 double rms(const PcmFrame& data);
 double rawLevel(double rms);
+double micRawLevel(double rms);
 
 class AudioLevel {
 public:
     void frame(Millis now, double rms);
+    void frameRaw(Millis now, double raw);
     double value(Millis now) const;
 
 private:

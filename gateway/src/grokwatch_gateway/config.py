@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 import math
 import os
+import re
 import subprocess
 
 
@@ -53,6 +54,9 @@ class Config:
     whisper_bin: str = "whisper-cli"
     whisper_model: str = ""
     tts_voice: str = "Kyoko"
+    wake: bool = False
+    wake_model: str = ""
+    wake_pattern: str = field(default="", repr=False)
     log_text: bool = False
     extra_redactions: tuple[str, ...] = field(default=(), repr=False)
 
@@ -77,6 +81,11 @@ class Config:
             raise ValueError("GROKWATCH_WHISPER_MODEL is required")
         if any(not math.isfinite(seconds) or seconds < 0 for seconds in (self.mock_delay, self.stt_delay)):
             raise ValueError("Mock delays must be finite and nonnegative")
+        if self.wake_pattern:
+            try:
+                re.compile(self.wake_pattern, re.IGNORECASE)
+            except (re.error, RecursionError, OverflowError):
+                raise ValueError("Invalid GROKWATCH_WAKE_PATTERN") from None
 
     @classmethod
     def from_env(cls, env=None):
@@ -113,6 +122,7 @@ class Config:
             stt_delay=number("MOCK_STT_DELAY_S", "0"), stt_fail=get("MOCK_STT_FAIL") == "1",
             tts_name=get("TTS", "mock"), whisper_bin=get("WHISPER_BIN", "whisper-cli"),
             whisper_model=get("WHISPER_MODEL"), tts_voice=get("TTS_VOICE", "Kyoko"),
+            wake=get("WAKE") == "1", wake_model=get("WAKE_MODEL"), wake_pattern=get("WAKE_PATTERN"),
             log_text=get("LOG_TEXT") == "1",
         )
 

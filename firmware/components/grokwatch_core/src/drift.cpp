@@ -43,7 +43,7 @@ DriftSample Drift::update(Millis now, Random& rng) {
 }
 
 Vec thinkingGaze(Millis elapsed) {
-    return {0.5 * std::sin(twoPi * (elapsed % 2400) / 2400), 0};
+    return {0.4 * std::sin(twoPi * (elapsed % 2400) / 2400), -0.3};
 }
 
 }  // namespace grokwatch

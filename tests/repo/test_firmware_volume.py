@@ -46,7 +46,7 @@ def test_render_scales_face_from_locked_volume(repo_root):
     source = (repo_root / "firmware/main/render_task.cpp").read_text()
     lock = source.index("const Lock lock(app.mutex)")
     volume = source.index("app.volume.value()", lock)
-    face = source.index("app.face.frame(app.state, now, app.level.value(now))", lock)
+    face = source.index("app.face.frame(app.state, now, level)", lock)
     assert volume < source.index("}();", lock)
     assert face < source.index("}();", lock)
     assert "scaleFace(" in source and "avatarScale(" in source

@@ -52,6 +52,21 @@ Effects AvatarStateMachine::stopListening(Millis now) {
     return effects;
 }
 
+Effects AvatarStateMachine::startListening(Millis now) {
+    vad_ = {};
+    capturedFrames_ = 0;
+    cancelled_ = false;
+    ++sessionNumber_;
+    enter(State::Listening, now);
+    auto effects = send(Command::ListenStart);
+    effects.startCapture = true;
+    return effects;
+}
+
+Effects AvatarStateMachine::wake(Millis now) {
+    return state_ == State::Idle ? startListening(now) : Effects{};
+}
+
 Effects AvatarStateMachine::longPress(Millis now) {
     switch (state_) {
         case State::Disconnected: {
@@ -59,16 +74,8 @@ Effects AvatarStateMachine::longPress(Millis now) {
             effects.blink = true;
             return effects;
         }
-        case State::Idle: {
-            vad_ = {};
-            capturedFrames_ = 0;
-            cancelled_ = false;
-            ++sessionNumber_;
-            enter(State::Listening, now);
-            auto effects = send(Command::ListenStart);
-            effects.startCapture = true;
-            return effects;
-        }
+        case State::Idle:
+            return startListening(now);
         case State::Listening:
             return stopListening(now);
         case State::Thinking:
