@@ -670,6 +670,29 @@ HTTP テストの署名は BRIDGE_WEBHOOK.md §7 の参考手順から独立に�
 | L10 | ファームは NVS を使わない（読み取り・書き込みともなし）。`firmware/main` と core に `nvs_*` の呼び出し、および `esp_partition_*`、`spi_flash_*`、`esp_flash_*` の消去・書き込み呼び出しがない | `tests/repo/test_firmware_config.py::test_no_nvs_or_flash_mutation_calls` |
 | L11 | ファームのソースの `ESP_LOG*` 呼び出しの引数に `password`・`token`・`ssid` を含む識別子がない | `tests/repo/test_firmware_config.py::test_no_secret_logging` |
 | L12 | 形式許可リストで画像・動画と対象外の形式の追跡を拒む。CSV・lock・defaults は `firmware/partitions.csv`、`uv.lock`、`firmware/dependencies.lock`、`firmware/sdkconfig.defaults` のみ許可する | `tests/repo/test_assets.py::test_asset_allowlist` |
+| L13 | `app_main.cpp` の5タスクすべてで、直接呼び出しグラフの最悪経路とタスク別余裕がタスク枠内に収まる。`gwapp::` と `grokwatch::` の各関数枠は 2,048 B 以下。再帰と枠未読は失敗する | `scripts/check_stack_frames.py` と `tests/repo/test_stack_frames.py` |
+
+### タスクのスタック予算
+
+`scripts/check_stack_frames.py` は ELF を `xtensa-esp32s3-elf-objdump -dC` で読み、`entry a1, N` の N を枠として扱う。`call0`、`call4`、`call8`、`call12` の直接呼び出しから `gwapp::` と `grokwatch::` のグラフを作る。`app_main.cpp` の `xTaskCreate` から net、audio、render、buttons、touch の入口と枠を読む。各関数枠は 2,048 B 以下とし、再帰と読めない枠は失敗にする。
+
+検査は `callx` の間接呼び出しをたどらない。IDF、M5Unified、M5GFX、newlib、Wi-Fi の内部経路、可変長確保も対象外である。touch も他の4タスクと同じ方法で検査する。外部ライブラリの直接呼び出しで ELF 内に枠がある関数は最大値を報告し、連鎖全体の余裕はタスクごとに明示する。
+
+`_vfprintf_r` の枠は objdump で 800 B と読めた。各タスクからの外部直接呼び出しで読めた最大枠は net の `esp_websocket_client_init` が 80 B、audio の `Speaker_Class::_play_raw` が 80 B、render の `LGFX_Sprite::push_sprite` が 144 B、buttons の `gpio_get_level` が 32 B、touch の `i2c::transactionWriteRead` が 64 B だった。これらは直接の呼び先1つの実測であり、ライブラリ連鎖全体の値ではない。
+
+| タスク | 最悪経路の関数枠合計 | 外部直接枠の最大実測 | 余裕と根拠 | 使用見積もり / `xTaskCreate` 枠 |
+| --- | ---: | ---: | --- | ---: |
+| net | 2,576 B | 80 B | 3,072 B。`_vfprintf_r` 800 B と ESP_LOG、Wi-Fi、FreeRTOS の連鎖を見込む | 5,648 / 12,288 B |
+| audio | 272 B | 80 B | 3,072 B。M5Unified の Mic、Speaker、I2S の連鎖を見込む | 3,344 / 6,144 B |
+| render | 1,136 B | 144 B | 3,072 B。M5GFX と M5Unified の描画連鎖を見込む | 4,208 / 6,144 B |
+| buttons | 144 B | 32 B | 2,048 B。GPIO と FreeRTOS の連鎖を見込む | 2,192 / 3,072 B |
+| touch | 400 B | 64 B | 3,072 B。M5Unified、LGFX I2C、FreeRTOS の連鎖を見込む | 3,472 / 4,096 B |
+
+余裕のうち直接枠で確認した値を除く部分は推定である。検査器は割り込みや外部ライブラリ内の連続した呼び出し枠を算出しない。
+
+停止を確認した ELF の識別子は `91e60f887` である。原因は、前回測定した関数枠の和 10,160 B にライブラリと ESP_LOG の枠（推定）が加わり、12,288 B を越えたことと推定する。クラッシュ記録は具体的な関数経路を示さない。今回 `1f8a375` をビルドした ELF は、呼び出しグラフで 10,192 B の経路と余裕 3,072 B、旧 `netTask` の 7,792 B 枠、`linkAction` の再帰を検出して失敗した。
+
+修正後は `Network`、AP 記録配列、audio の `Capture` と `Playback` を静的領域へ置いた。音声タスクは1つなので、2つのバッファを同じタスク専用の静的オブジェクトにできる。audioTask は 2,688 B から 64 B になった。タスク枠 6,144 B は変更していない。起動後に60秒ごと、全5タスクの残量を `diag stack free net=%u audio=%u render=%u buttons=%u touch=%u` で記録する。実機の残量は未確認である。
 
 素材や顔データの出所・権利、形式不明の Agent ID、個人情報は公開前の差分目視でも確認する（[AGENTS.md](../AGENTS.md)、[LESSONS.md](../LESSONS.md)）。
 
@@ -714,3 +737,24 @@ Phase 5 の端末確認は、対象と影響の承認を得てから進める。
 | `end_conversation` と `turn` | Phase 3〜4 の v1 は BRIDGE_WEBHOOK.md §5 の会話継続を見送り、`end_conversation` の値にかかわらず再生後は Idle に戻る。`turn` は 1 | 会話の継続は Phase 6 以降に検討 |
 | `emotion` | v1 では端末へ送らない | プロトコル v2 で検討 |
 | 数値 | 本書の時間・しきい値・寸法は実機で未評価。端末の 100 秒は STT や TTS の時間も含むため、webhook 側の 90 秒より先に打ち切る場合がある | Phase 5 で区間ごとの所要時間を測り、上限を見直す |
+
+## 14. 音量ボタンとアバターの大きさ
+
+A ボタン（黄、GPIO2）で音量を上げ、B ボタン（青、GPIO1）で下げる。物理配置に対する割り当ての手触りは実機で未確認。ボタンは `gpio_get_level` で読み、10 ms 周期で3サンプル安定した入力を確定する。音量ボタンを会話ジェスチャーへ渡さず、電源ボタンの処理も変えない。
+
+音量段 `k` は0〜51の52段階です。`M5.Speaker.setVolume` に渡す master 値は `v=5k` で、段0は無音です。既定は段26、値130、約−11.8 dBです。段51は値255、約−0.14 dBです。押下判定時に1段変わり、400 ms後から200、160、130、100、80、60、50 ms間隔で連続して変わります。上限は毎秒20段で、値0から255までは約3.3秒です。段51と段0では停止し、折り返しません。両方を押すと、両方を離すまで操作を止めます。
+
+| 段 | 0 | 1 | 2 | 4 | 5 | 10 | 13 | 26 | 39 | 50 | 51 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| master値 | 0 | 5 | 10 | 20 | 25 | 50 | 65 | 130 | 195 | 250 | 255 |
+| 利得 | 無音 | −68.4 dB | −56.4 dB | −44.4 dB | −40.5 dB | −28.4 dB | −23.9 dB | −11.8 dB | −4.8 dB | −0.48 dB | −0.14 dB |
+
+音量値に応じて顔、目、リング、点を画面中心から拡大縮小する。顔の半径は `200 × sqrt(0.1 × 233² / 200² + (1 − 0.1 × 233² / 200²) × v / 255)` です。値0、130、255の半径は約73.7、151.8、200 pxです。確認音、音量バー、NVSへの保存は行いません。
+
+段とボタンの時間状態、利得、顔の描画寸法は `grokwatch_core` が持ちます。スピーカーとマイクのAPI呼び出しは `audio_task.cpp` に集め、録音開始前にスピーカーを停止します。
+
+M5Unified 0.2.17 の `Speaker.begin()` は、電源 callback の後で I2S 設定に失敗すると callback を戻さず I2S を解除しません。失敗後に残るコーデック電源と部分 I2S を解放するため、`firmware/CMakeLists.txt` は `Speaker_Class.cpp` のビルド用コピーだけを変更し、callback を false で呼び、I2S を解除して false を返します。この変更は依存コンポーネントのファイルに触れません。`firmware/CMakeLists.txt` の M5Unified パッチ節を削除すると、ビルドは元のライブラリソースへ戻ります。失敗経路は実行しておらず、実機でも確認していません。
+
+`playRaw` が false を返した場合、`audio_task.cpp` は `fault(app)` の前に `stop()` を呼びます。失敗した再生を止めるための処理です。失敗分岐の `stop()` を削除すると以前の動作に戻ります。この失敗経路も実行しておらず、実機では確認していません。
+
+ホストテストは段、利得、10 ms 周期のデバウンス、初回遅延、加速、上限、端、両押しを検査します。6つの状態で指定された6つの経過時間について、目・リング・点の境界条件を検査します。§5.2 の目、リング、点の寸法表は5つの音量値と6つの経過時間で照合します。実機の音量、歪み、電池、表示の手触り、タッチとの同時操作、電源ボタン、録音と再生の切り替えは未確認です。結果は[テスト報告](TEST_REPORT.md)の自動検証と実機確認を分けて記録します。

@@ -16,11 +16,11 @@ bool initBoard() {
     config.internal_spk = true;
     M5.begin(config);
 
-    if (M5.getBoard() != m5::board_t::board_M5StopWatch ||
-        !M5.Display.touch() || !M5.Mic.isEnabled() || !M5.Speaker.isEnabled()) {
+    if (M5.getBoard() != m5::board_t::board_M5StopWatch || !M5.Display.touch()) {
         return false;
     }
 
+    if (!configureAudio()) return false;
     M5.Display.setRotation(0);
     return M5.Display.width() >= grokwatch::screenSize &&
            M5.Display.height() >= grokwatch::screenSize;

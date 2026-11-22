@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "grokwatch/volume.hpp"
 
 #include <M5Unified.h>
 #include <array>
@@ -133,6 +134,7 @@ public:
                 if (!current(app)) return;
             }
             if (!M5.Speaker.playRaw(pcm.data(), pcm.size(), sampleRate, false, 1, channel_)) {
+                stop();
                 fault(app);
                 return;
             }
@@ -183,23 +185,40 @@ private:
 
 }  // namespace
 
+bool configureAudio() {
+    if (!M5.Mic.isEnabled() || !M5.Speaker.isEnabled()) return false;
+    auto config = M5.Speaker.config();
+    config.magnification = grokwatch::speakerMagnification;
+    M5.Speaker.config(config);
+    return true;
+}
+
 void audioTask(void* context) {
     auto& app = *static_cast<App*>(context);
-    Capture capture;
-    Playback playback;
+    // There is one audio task, so it owns these persistent buffers in static storage.
+    static Capture capture;
+    static Playback playback;
+    auto appliedVolume = grokwatch::defaultVolumeValue;
+    M5.Speaker.setVolume(appliedVolume);
     for (;;) {
         bool capturing;
         unsigned captureEpoch;
         bool canPlay;
         unsigned playbackEpoch;
+        std::uint8_t volume;
         {
             Lock lock(app.mutex);
             capturing = app.capturing;
             captureEpoch = app.captureEpoch;
             canPlay = app.canPlay;
             playbackEpoch = app.playbackEpoch;
+            volume = app.volume.value();
         }
         if (capturing || !canPlay) playback.stop();
+        if (volume != appliedVolume) {
+            M5.Speaker.setVolume(volume);
+            appliedVolume = volume;
+        }
         if (!capture.pump(app, capturing, captureEpoch) && canPlay) {
             playback.pump(app, playbackEpoch);
         }

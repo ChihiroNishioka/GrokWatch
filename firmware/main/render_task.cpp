@@ -1,7 +1,9 @@
 #include "app.hpp"
+#include "grokwatch/avatar_scale.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include <M5Unified.h>
 #include "esp_log.h"
@@ -12,13 +14,12 @@ namespace gwapp {
 namespace {
 
 using grokwatch::faceCenter;
-using grokwatch::faceRadius;
 using grokwatch::screenSize;
 
 constexpr std::uint32_t black = 0x000000;
 constexpr std::uint32_t white = 0xffffff;
 
-void drawRing(M5Canvas& sprite, const grokwatch::Ring& ring) {
+void drawRing(M5Canvas& sprite, const grokwatch::DrawnRing& ring) {
     if (ring.kind == grokwatch::RingKind::None) return;
 
     const int outer = std::lround(ring.radius + ring.width / 2);
@@ -34,11 +35,12 @@ void drawRing(M5Canvas& sprite, const grokwatch::Ring& ring) {
     }
 }
 
-void drawFace(M5Canvas& sprite, const grokwatch::FaceModel& face) {
+void drawFace(M5Canvas& sprite, const grokwatch::FaceModel& face, double scale) {
+    const auto drawn = grokwatch::scaleFace(face, scale);
     sprite.fillScreen(black);
-    sprite.fillCircle(faceCenter, faceCenter, faceRadius, white);
+    sprite.fillCircle(faceCenter, faceCenter, std::lround(drawn.radius), white);
 
-    for (const auto& eye : face.eyes) {
+    for (const auto& eye : drawn.eyes) {
         const int width = std::lround(eye.width);
         const int height = std::lround(eye.height);
         const int radius = std::min<int>(std::lround(eye.radius), std::min(width, height) / 2);
@@ -47,11 +49,12 @@ void drawFace(M5Canvas& sprite, const grokwatch::FaceModel& face) {
                              width, height, radius, black);
     }
 
-    drawRing(sprite, face.ring);
-    if (face.activeDot >= 0) {
-        for (int index = 0; index < static_cast<int>(face.dots.size()); ++index) {
-            const auto dot = face.dots[index];
-            sprite.fillCircle(dot.x, dot.y, 3, index == face.activeDot ? white : 0x404040u);
+    drawRing(sprite, drawn.ring);
+    if (drawn.activeDot >= 0) {
+        for (int index = 0; index < static_cast<int>(drawn.dots.size()); ++index) {
+            const auto dot = drawn.dots[index];
+            sprite.fillCircle(std::lround(dot.x), std::lround(dot.y), drawn.dotRadius,
+                              index == drawn.activeDot ? white : 0x404040u);
         }
     }
 }
@@ -78,9 +81,10 @@ void renderTask(void* context) {
         const auto frame = [&app] {
             const Lock lock(app.mutex);
             const auto now = nowMs();
-            return app.face.frame(app.state, now, app.level.value(now));
+            return std::pair{app.face.frame(app.state, now, app.level.value(now)),
+                             app.volume.value()};
         }();
-        drawFace(sprite, frame);
+        drawFace(sprite, frame.first, grokwatch::avatarScale(frame.second));
         sprite.pushSprite(x, y);
         if (xTaskDelayUntil(&deadline, pdMS_TO_TICKS(33)) == pdFALSE) {
             vTaskDelay(1);

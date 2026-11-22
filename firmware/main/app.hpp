@@ -1,4 +1,5 @@
 #pragma once
+#include "grokwatch/volume.hpp"
 #include "grokwatch/face_model.hpp"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -18,7 +19,13 @@ struct App {
     SemaphoreHandle_t mutex = nullptr;
     QueueHandle_t gestures = nullptr;
     QueueHandle_t captured = nullptr;
+    TaskHandle_t netTaskHandle = nullptr;
+    TaskHandle_t audioTaskHandle = nullptr;
+    TaskHandle_t renderTaskHandle = nullptr;
+    TaskHandle_t buttonTaskHandle = nullptr;
+    TaskHandle_t touchTaskHandle = nullptr;
     grokwatch::FaceAnimator face;
+    grokwatch::VolumeControl volume;
     grokwatch::State state = grokwatch::State::Disconnected;
     bool capturing = false;
     unsigned captureEpoch = 0;
@@ -44,7 +51,9 @@ private:
 inline grokwatch::Millis nowMs() { return esp_timer_get_time() / 1000; }
 
 bool initBoard();
+bool configureAudio();
 void renderTask(void* context);
+void buttonTask(void* context);
 void touchTask(void* context);
 void audioTask(void* context);
 void netTask(void* context);
