@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.grokwatch.gateway</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>@REPO@/deploy/macos/run-gateway.sh</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>@REPO@</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>@HOME@/Library/Logs/GrokWatch/gateway.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>@HOME@/Library/Logs/GrokWatch/gateway.err.log</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>GROKWATCH_STT</key>
+		<string>whisper_cpp</string>
+		<key>GROKWATCH_TTS</key>
+		<string>macos_say</string>
+		<key>GROKWATCH_TTS_VOICE</key>
+		<string>Kyoko</string>
+		<key>GROKWATCH_BRIDGE</key>
+		<string>@BRIDGE@</string>
+		<key>GROKWATCH_LOG_TEXT</key>
+		<string>0</string>
+		<key>GROKWATCH_REPLY_LISTEN</key>
+		<string>127.0.0.1:8767</string>
+		<key>GROKWATCH_GATEWAY_PORT</key>
+		<string>8765</string>
+		<key>GROKWATCH_WHISPER_MODEL</key>
+		<string>@WHISPER_MODEL@</string>
+	</dict>
+</dict>
+</plist>

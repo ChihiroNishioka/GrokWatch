@@ -3,9 +3,14 @@
 !.env.example
 .runs/
 build*/
+build/
+firmware/build/
+firmware/sdkconfig
+sdkconfig.local.defaults
 sdkconfig
 sdkconfig.old
 managed_components/
+firmware/managed_components/
 *.bin
 *.elf
 *.log
