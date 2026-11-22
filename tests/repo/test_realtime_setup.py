@@ -297,4 +297,4 @@ def test_release_version_script_passes_at_1_2_0():
     result = subprocess.run(["python3", str(ROOT / "scripts" / "release_version.py")],
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "1.2.0"
+    assert result.stdout.strip() == "1.2.1"

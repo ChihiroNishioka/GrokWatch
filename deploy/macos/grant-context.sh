@@ -37,7 +37,7 @@ out=$("$BIN" schedule --from "$today" --to "$tomorrow" 2>/dev/null) || status=$?
 case $status in
 	0) echo "   OK: 今日と明日の予定は $(printf '%s' "$out" | count_of events) 件です" ;;
 	3) echo "   !! 許可されていません。システム設定 > プライバシーとセキュリティ > カレンダー で grokwatch-context を許可してください"; failed=1 ;;
-	*) echo "   !! 読み取りに失敗しました（コード $status）"; failed=1 ;;
+	*) echo "   !! 読み取りに失敗しました（コード ${status}）"; failed=1 ;;
 esac
 
 echo "② メールを確認します（直近 24 時間の未読）…"
@@ -47,7 +47,7 @@ case $status in
 	0) echo "   OK: 直近 24 時間の未読は（最大 10 件のうち）$(printf '%s' "$out" | count_of messages) 件です" ;;
 	3) echo "   !! 許可されていません。システム設定 > プライバシーとセキュリティ > オートメーション で grokwatch-context のメールを許可してください"; failed=1 ;;
 	4) echo "   !! メール.app が起動していません。メール.app を開いてからもう一度実行してください"; failed=1 ;;
-	*) echo "   !! 読み取りに失敗しました（コード $status）"; failed=1 ;;
+	*) echo "   !! 読み取りに失敗しました（コード ${status}）"; failed=1 ;;
 esac
 unset out
 

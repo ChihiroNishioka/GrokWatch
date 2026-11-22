@@ -7,9 +7,9 @@
 	<key>CFBundleName</key>
 	<string>grokwatch-context</string>
 	<key>CFBundleVersion</key>
-	<string>1.2.0</string>
+	<string>1.2.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.0</string>
+	<string>1.2.1</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>腕時計の GrokWatch が今日の予定を答えるために、カレンダーの予定を読みます。</string>
 	<key>NSAppleEventsUsageDescription</key>

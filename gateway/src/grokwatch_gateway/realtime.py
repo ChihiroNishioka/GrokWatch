@@ -151,6 +151,8 @@ class RealtimeSession:
                         event = json.loads(message.data)
                     except ValueError:
                         continue
+                    if isinstance(event, dict) and event.get("type") == "error":
+                        self.log_server_error(event)
                     if isinstance(event, dict) and self.collect:
                         self.events.put_nowait(event)
                 elif message.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED):
@@ -158,9 +160,17 @@ class RealtimeSession:
         except (aiohttp.ClientError, ConnectionError, RuntimeError, OSError):
             pass
         finally:
+            if ws.close_code is not None:
+                self.log("realtime_closed", code=f"ws_{ws.close_code}")
             if self.ws is ws:
                 self.ws = None
             self.events.put_nowait(None)
+
+    def log_server_error(self, event):
+        """Log the server's error type, code and offending parameter (never message text or audio)."""
+        err = event.get("error") if isinstance(event.get("error"), dict) else {}
+        parts = [str(err.get(key))[:60] for key in ("type", "code", "param") if isinstance(err.get(key), str)]
+        self.log("realtime_server_error", level="warning", code=":".join(parts) or "unknown")
 
     async def close_connection(self):
         ws, self.ws = self.ws, None

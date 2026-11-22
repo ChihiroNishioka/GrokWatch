@@ -87,9 +87,8 @@ fi
 cat <<'MSG'
 
 === 完了 ===
-次に、次のコマンドを実行してください（予定とメールの許可を出します）:
+次に Gateway を切り替えます（予定とメールを読むコマンドもここでビルドされます）:
+  bash deploy/macos/install.sh --bridge realtime --whisper-model <いま使っている whisper モデルのパス>
+そのあと、メール.app を起動してから許可を出します:
   bash deploy/macos/grant-context.sh
-そのあと Gateway を切り替えます:
-  bash deploy/macos/install.sh --bridge realtime \
-    --whisper-model "$HOME/.local/share/GrokWatch/models/ggml-base.bin"
 MSG
