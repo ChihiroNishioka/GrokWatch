@@ -138,6 +138,40 @@ bash deploy/macos/status.sh
 tailscale serve --bg --https=443 --set-path=/v1/reply http://127.0.0.1:8767/v1/reply
 ```
 
+### OpenAI Realtime に切り替える（v1.2.0）
+
+返事を速くする経路です。仕様は [v1.2.0 仕様](V1_2_SPEC.md) を参照してください。Mac mini の前で、オーナーが次の順に行います。
+
+1. 鍵を登録します。OpenAI の API キーと、Grok Bot の「GrokWatch 作業受付」ルーチンの Webhook URL・送信キーを聞かれます（[ルーチンの作り方](BRIDGE_WEBHOOK.md)）。入力は画面に表示されず、Keychain にだけ保存されます。作業受付を後で設定する場合は、2 つ目の欄を空のまま Enter で飛ばせます。
+
+   ```bash
+   bash deploy/macos/set-realtime-keys.sh
+   ```
+
+2. 補助コマンドをビルドして LaunchAgent を更新し、予定とメールの読み取りを許可します（Xcode Command Line Tools の `swiftc` が必要です。無ければ `xcode-select --install`）。`--dry-run` ではビルドしません。
+
+   ```bash
+   bash deploy/macos/install.sh --bridge realtime \
+     --whisper-model "$HOME/.local/share/GrokWatch/models/ggml-base.bin"
+   bash deploy/macos/grant-context.sh
+   bash deploy/macos/status.sh
+   ```
+
+   `grant-context.sh` は予定とメールを一度だけ読み、カレンダーの「フルアクセス」とメール.app の操作の許可ダイアログを出します（「許可」を押す）。件数だけを表示します（内容は出しません）。許可は補助コマンドに対して記録されます。システム設定の「プライバシーとセキュリティ」の「カレンダー」「オートメーション」で確認できます。
+3. **メール.app は起動したままにしてください。** Gateway は起動しません。起動していないとメールは「いま確認できなかった」と答えます。
+4. `status.sh` で `GROKWATCH_OPENAI_API_KEY` が present になっていること、`curl --fail --silent http://127.0.0.1:8767/healthz` が 200 を返すことを確かめます。
+
+`GROKWATCH_TASK_WEBHOOK_URL` / `_KEY` が無い場合、「作業の依頼」だけが使えません（Gateway は依頼を受けられないと答えます）。
+
+webhook 経路（v1.1.0）に戻すには、webhook 用の Keychain 項目が登録済みであることを確認して、ブリッジを指定し直します。補助コマンドと Keychain 項目は残ります。
+
+```bash
+bash deploy/macos/install.sh --bridge webhook \
+  --whisper-model "$HOME/.local/share/GrokWatch/models/ggml-base.bin"
+```
+
+実機での遅延、声、許可の有効性は未確認です（[仕様 §9](V1_2_SPEC.md)）。
+
 ### 「Hi Grok」ウェイクワードを有効にする（v1.1.0）
 
 既定は無効です。有効にすると、StopWatch は Idle 中も収音し、声を検知した区間（最大 2.5 秒）だけを Gateway へ送ります。Gateway は whisper.cpp で文字起こしして「ハイグロック」「Hi Grok」などと照合します。音声と文字起こしは保存しません。仕様は [v1.1.0 仕様 §4](V1_1_SPEC.md) を参照してください。

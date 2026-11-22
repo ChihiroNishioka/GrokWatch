@@ -7,7 +7,11 @@ Gateway は `grokwatch` サービスの一般パスワード項目から秘密�
 | `GROKWATCH_DEVICE_TOKEN` | 常に必要 |
 | `GROKWATCH_WEBHOOK_URL` | `GROKWATCH_BRIDGE=webhook` のとき必要 |
 | `GROKWATCH_WEBHOOK_KEY` | `GROKWATCH_BRIDGE=webhook` のとき必要 |
+| `GROKWATCH_OPENAI_API_KEY` | `GROKWATCH_BRIDGE=realtime` のとき必要 |
+| `GROKWATCH_TASK_WEBHOOK_URL` | 任意（realtime の作業の依頼用。なければ依頼を受けられない） |
+| `GROKWATCH_TASK_WEBHOOK_KEY` | 任意（同上） |
 
+realtime の 3 項目は `bash deploy/macos/set-realtime-keys.sh` で案内に沿って登録できます。
 ## 対話形式で登録する
 
 アカウント名を補助スクリプトに渡します。スクリプトは `security add-generic-password -s grokwatch -a <account> -U -w` を実行します。`-w` に値を渡さないため、`security` が入力を求めます。

@@ -2,7 +2,9 @@
 
 M5Stack StopWatch C152 を、Mac mini 上の既存 Grok Bot「伝書鳩」の顔・耳・口・タッチ画面にするプロジェクトです。StopWatch が丸型画面のアバターと日本語音声の入出力を担当し、伝書鳩が会話、記憶、Skills、タスク実行を担当します。
 
-**v1.1.0 実装中（ビルドとモックのみ、実機未検証）**: 聞き取り中・考え中の表示強化、返事の感情に合わせた表情、「Hi Grok」ウェイクワード（既定は無効）。[v1.1.0 仕様](docs/V1_1_SPEC.md)
+**v1.2.0 実装中（ビルドとモックのみ、実機未検証）**: OpenAI Realtime で速く答え、予定とメールを Mac mini から読み、作業は Grok Bot の作業用ルーチンへ渡す（`GROKWATCH_BRIDGE=realtime`）。[v1.2.0 仕様](docs/V1_2_SPEC.md)
+
+v1.1.0: 聞き取り中・考え中の表示強化、返事の感情に合わせた表情、「Hi Grok」ウェイクワード（既定は無効）。[v1.1.0 仕様](docs/V1_1_SPEC.md)
 
 ```mermaid
 flowchart LR

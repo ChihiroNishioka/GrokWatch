@@ -12,7 +12,7 @@ WAKE=0
 DRY_RUN=0
 
 usage() {
-	printf '%s\n' 'Usage: install.sh [--bridge mock|webhook] [--repo PATH] [--whisper-model PATH] [--wake] [--dry-run]'
+	printf '%s\n' 'Usage: install.sh [--bridge mock|webhook|realtime] [--repo PATH] [--whisper-model PATH] [--wake] [--dry-run]'
 }
 
 while (($#)); do
@@ -52,8 +52,8 @@ while (($#)); do
 done
 
 case $BRIDGE in
-	mock|webhook) ;;
-	*) printf '%s\n' 'Bridge must be mock or webhook' >&2; exit 64 ;;
+	mock|webhook|realtime) ;;
+	*) printf '%s\n' 'Bridge must be mock, webhook or realtime' >&2; exit 64 ;;
 esac
 
 REPO_DIR="$(cd -- "$REPO_DIR" && pwd -P)"
@@ -80,9 +80,40 @@ if [[ $BRIDGE == webhook ]]; then
 		security find-generic-password -s grokwatch -a "$account" >/dev/null 2>&1 || missing+=("$account")
 	done
 fi
+if [[ $BRIDGE == realtime ]]; then
+	security find-generic-password -s grokwatch -a GROKWATCH_OPENAI_API_KEY >/dev/null 2>&1 || \
+		missing+=(GROKWATCH_OPENAI_API_KEY)
+fi
 if ((${#missing[@]})); then
 	printf 'Missing Keychain item: %s\n' "${missing[@]}" >&2
 	exit 78
+fi
+if [[ $BRIDGE == realtime ]]; then
+	for account in GROKWATCH_TASK_WEBHOOK_URL GROKWATCH_TASK_WEBHOOK_KEY; do
+		security find-generic-password -s grokwatch -a "$account" >/dev/null 2>&1 || \
+			printf 'Warning: optional Keychain item is missing (delegation is disabled): %s\n' "$account" >&2
+	done
+fi
+
+# realtime では予定・メールを読む補助コマンドが必要。Swift コンパイラの有無を先に確かめる。
+context_dir="$HOME_DIR/.local/share/GrokWatch/bin"
+context_bin="$context_dir/grokwatch-context"
+swiftc_cmd=()
+if [[ $BRIDGE == realtime ]]; then
+	if command -v swiftc >/dev/null 2>&1; then
+		swiftc_cmd=(swiftc)
+	elif command -v xcrun >/dev/null 2>&1 && xcrun --find swiftc >/dev/null 2>&1; then
+		swiftc_cmd=(xcrun swiftc)
+	else
+		printf '%s\n' 'swiftc is missing; install the Xcode Command Line Tools (xcode-select --install)' >&2
+		exit 69
+	fi
+	for source_file in main.swift Info.plist; do
+		[[ -r $REPO_DIR/tools/grokwatch-context/$source_file ]] || {
+			printf 'Helper source is missing: %s\n' "$source_file" >&2
+			exit 66
+		}
+	done
 fi
 
 gui_domain="gui/$(id -u)"
@@ -127,6 +158,21 @@ if ((!DRY_RUN)); then
 	fi
 fi
 
+if ((!DRY_RUN)) && [[ $BRIDGE == realtime ]]; then
+	helper_src="$REPO_DIR/tools/grokwatch-context"
+	mkdir -p "$context_dir"
+	helper_tmp="$context_dir/.grokwatch-context.build.$$"
+	if ! "${swiftc_cmd[@]}" -O -target "$(uname -m)-apple-macos14.0" "$helper_src/main.swift" -o "$helper_tmp" \
+		-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$helper_src/Info.plist"; then
+		rm -f -- "$helper_tmp"
+		printf '%s\n' 'Could not build grokwatch-context' >&2
+		exit 69
+	fi
+	chmod 755 "$helper_tmp"
+	mv -f -- "$helper_tmp" "$context_bin"
+	printf 'Built: %s\n' "$context_bin"
+fi
+
 launch_agents="$HOME_DIR/Library/LaunchAgents"
 plist_path="$launch_agents/$LABEL.plist"
 logs="$HOME_DIR/Library/Logs/GrokWatch"
@@ -135,13 +181,14 @@ from pathlib import Path
 import sys
 from xml.sax.saxutils import escape
 
-source, home, repo, bridge, model, wake = sys.argv[1:]
+source, home, repo, bridge, model, wake, context_bin = sys.argv[1:]
 replacements = {
     "@HOME@": escape(home),
     "@REPO@": escape(repo),
     "@BRIDGE@": escape(bridge),
     "@WHISPER_MODEL@": escape(model),
     "@WAKE@": escape(wake),
+    "@CONTEXT_BIN@": escape(context_bin),
 }
 text = Path(source).read_text(encoding="utf-8")
 for key, value in replacements.items():
@@ -150,7 +197,7 @@ if any(key in text for key in replacements):
     raise SystemExit("Unexpanded plist placeholder")
 sys.stdout.write(text)
 ' "$SCRIPT_DIR/com.grokwatch.gateway.plist.template" \
-	"$HOME_DIR" "$REPO_DIR" "$BRIDGE" "$WHISPER_MODEL" "$WAKE")
+	"$HOME_DIR" "$REPO_DIR" "$BRIDGE" "$WHISPER_MODEL" "$WAKE" "$context_bin")
 
 if [[ -f $plist_path ]] && cmp -s <(printf '%s\n' "$plist_text") "$plist_path"; then
 	if ((job_loaded)); then

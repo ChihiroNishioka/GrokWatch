@@ -74,6 +74,8 @@ class DeviceSession:
         try:
             if self.cleanup is not None:
                 await asyncio.shield(self.cleanup)
+            if self.server.realtime is not None:
+                await asyncio.shield(self.server.realtime.discard())
         finally:
             await asyncio.shield(wake)
 
@@ -115,6 +117,8 @@ class DeviceSession:
         self.turn = ConversationTurn(number, self.server.next_session())
         self.capture = bytearray()
         self.bad_frame = False
+        if self.server.realtime is not None:
+            await self.server.realtime.begin()
         await self.conversation.state("listening", self.turn)
 
     async def stop(self):
@@ -125,7 +129,11 @@ class DeviceSession:
         turn = self.turn
         await self.conversation.state("thinking", turn)
         if not self.retired:
-            self.task = asyncio.create_task(self.conversation.run(pcm, turn))
+            if self.server.realtime is not None:
+                run = self.server.realtime.run(self.conversation, pcm, turn)
+            else:
+                run = self.conversation.run(pcm, turn)
+            self.task = asyncio.create_task(run)
 
     async def handle(self, frame):
         if frame.type == WSMsgType.BINARY:
@@ -140,6 +148,8 @@ class DeviceSession:
                     await self.conversation.error("bad_frame", retryable=False, turn=self.turn)
                 return
             self.capture.extend(frame.data)
+            if self.server.realtime is not None:
+                await self.server.realtime.feed(frame.data)
             if len(self.capture) == FRAME_BYTES * MAX_FRAMES:
                 await self.stop()
             return
@@ -176,7 +186,7 @@ class DeviceSession:
 
 
 class WebSocketServer:
-    def __init__(self, config, stt, tts, bridge, canned, log, clock, sleep, pace_clock, wake_stt=None):
+    def __init__(self, config, stt, tts, bridge, canned, log, clock, sleep, pace_clock, wake_stt=None, realtime=None):
         self.config = config
         self.stt = stt
         self.tts = tts
@@ -187,6 +197,7 @@ class WebSocketServer:
         self.sleep = sleep
         self.pace_clock = pace_clock
         self.wake_stt = wake_stt
+        self.realtime = realtime
         self.wake_pattern = compile_pattern(config.wake_pattern)
         self.active = None
         self.connections = set()
@@ -272,3 +283,5 @@ class WebSocketServer:
             device.retired = True
             await device.cancel()
         await asyncio.gather(*(ws.close() for ws in self.connections if ws.prepared))
+        if self.realtime is not None:
+            await self.realtime.close()

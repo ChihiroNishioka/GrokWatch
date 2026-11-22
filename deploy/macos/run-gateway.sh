@@ -9,12 +9,13 @@ export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/us
 
 if [[ -n ${GROKWATCH_BRIDGE_OVERRIDE:-} ]]; then
 	case $GROKWATCH_BRIDGE_OVERRIDE in
-		mock|webhook) export GROKWATCH_BRIDGE="$GROKWATCH_BRIDGE_OVERRIDE" ;;
-		*) printf '%s\n' 'GROKWATCH_BRIDGE_OVERRIDE must be mock or webhook' >&2; exit 64 ;;
+		mock|webhook|realtime) export GROKWATCH_BRIDGE="$GROKWATCH_BRIDGE_OVERRIDE" ;;
+		*) printf '%s\n' 'GROKWATCH_BRIDGE_OVERRIDE must be mock, webhook or realtime' >&2; exit 64 ;;
 	esac
 fi
 
-unset GROKWATCH_DEVICE_TOKEN GROKWATCH_WEBHOOK_URL GROKWATCH_WEBHOOK_KEY GROKWATCH_ALLOW_ENV_SECRETS
+unset GROKWATCH_DEVICE_TOKEN GROKWATCH_WEBHOOK_URL GROKWATCH_WEBHOOK_KEY GROKWATCH_OPENAI_API_KEY \
+	GROKWATCH_TASK_WEBHOOK_URL GROKWATCH_TASK_WEBHOOK_KEY GROKWATCH_ALLOW_ENV_SECRETS
 
 if [[ ! -x $GW_PYTHON ]]; then
 	printf '%s\n' 'Gateway virtual environment is missing; run install.sh first' >&2

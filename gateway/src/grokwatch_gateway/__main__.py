@@ -13,6 +13,7 @@ from .audio import MacosSay, MockStt, MockTts, WhisperCpp
 from .canned import synthesize_canned
 from .config import Config
 from .logging import EventLog
+from .realtime import RealtimeSession, UnavailableBridge
 from .registry import Registry
 from .reply_server import reply_handler
 from .ws_server import WebSocketServer
@@ -39,13 +40,21 @@ def create_gateway(config, *, stt=None, wake_stt=None, tts=None, bridge=None, cl
     logging.getLogger("aiohttp").setLevel(logging.CRITICAL + 1)
     registry = Registry(clock, config.retention)
     log = EventLog(log_text=config.log_text, tokens=registry.tokens, redactions=(
-        config.device_token, config.webhook_key, config.webhook_url, config.agent_id,
+        config.device_token, config.webhook_key, config.openai_api_key,
+        config.task_webhook_key, config.task_webhook_url, config.webhook_url, config.agent_id,
         config.gateway_host, config.whisper_bin if "/" in config.whisper_bin else "",
         config.whisper_model, config.wake_model, config.gbot_bin if "/" in config.gbot_bin else "",
         *config.extra_redactions,
     ))
     if bridge is None:
-        bridge = create_bridge(registry, config.bridge_env(), clock=clock)
+        env = config.bridge_env()
+        if config.bridge_name == "realtime":
+            # Realtime answers directly; the webhook bridge (if configured) is only the fallback path.
+            env["GROKWATCH_BRIDGE"] = "webhook"
+            bridge = (create_bridge(registry, env, clock=clock) if config.webhook_url and config.webhook_key
+                      else UnavailableBridge())
+        else:
+            bridge = create_bridge(registry, env, clock=clock)
     if stt is None:
         stt = (WhisperCpp(config.whisper_model, config.whisper_bin) if config.stt_name == "whisper_cpp"
                else MockStt(config.stt_text, config.stt_delay, config.stt_fail))
@@ -56,7 +65,8 @@ def create_gateway(config, *, stt=None, wake_stt=None, tts=None, bridge=None, cl
         tts = MacosSay(config.tts_voice) if config.tts_name == "macos_say" else MockTts()
 
     canned = {}
-    devices = WebSocketServer(config, stt, tts, bridge, canned, log, clock, sleep, pace_clock, wake_stt)
+    realtime = RealtimeSession(config, log, clock) if config.bridge_name == "realtime" else None
+    devices = WebSocketServer(config, stt, tts, bridge, canned, log, clock, sleep, pace_clock, wake_stt, realtime)
     ws_app = web.Application()
     reply_app = web.Application(handler_args={"auto_decompress": False})
     gateway = Gateway(ws_app, reply_app, devices, registry, bridge)
@@ -79,12 +89,15 @@ def create_gateway(config, *, stt=None, wake_stt=None, tts=None, bridge=None, cl
                 await task
 
     async def health(request):
-        bridge_health = await bridge.health()
+        if realtime is not None:
+            name, available = "realtime", bool(config.openai_api_key)
+        else:
+            name, available = bridge.name, (await bridge.health()).available
         return web.json_response(dict(
-            status="ok" if bridge_health.available else "degraded",
-            bridge=dict(name=bridge.name, available=bridge_health.available),
+            status="ok" if available else "degraded",
+            bridge=dict(name=name, available=available),
             stt=config.stt_name, tts=config.tts_name,
-            device_connected=gateway.device_connected, wake=config.wake, version="1.1.0",
+            device_connected=gateway.device_connected, wake=config.wake, version="1.2.0",
         ))
 
     ws_app.on_startup.append(startup)

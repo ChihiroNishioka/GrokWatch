@@ -29,13 +29,20 @@ else
 	printf '%s\n' 'Health: unavailable'
 fi
 
-for account in GROKWATCH_DEVICE_TOKEN GROKWATCH_WEBHOOK_URL GROKWATCH_WEBHOOK_KEY; do
+for account in GROKWATCH_DEVICE_TOKEN GROKWATCH_WEBHOOK_URL GROKWATCH_WEBHOOK_KEY \
+	GROKWATCH_OPENAI_API_KEY GROKWATCH_TASK_WEBHOOK_URL GROKWATCH_TASK_WEBHOOK_KEY; do
 	if security find-generic-password -s grokwatch -a "$account" >/dev/null 2>&1; then
 		printf 'Keychain %s: present\n' "$account"
 	else
 		printf 'Keychain %s: missing\n' "$account"
 	fi
 done
+
+if [[ -x $HOME/.local/share/GrokWatch/bin/grokwatch-context ]]; then
+	printf '%s\n' 'grokwatch-context: present'
+else
+	printf '%s\n' 'grokwatch-context: missing'
+fi
 
 if command -v tailscale >/dev/null 2>&1; then
 	printf '%s\n' 'Tailscale Serve:'
