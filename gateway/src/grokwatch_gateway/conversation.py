@@ -17,6 +17,44 @@ class ConversationTurn:
     bridge_session: Session
 
 
+class TtsStream:
+    """Sends 16 kHz PCM16 to the device in 20 ms frames with the existing pacing."""
+
+    def __init__(self, ws, sleep, pace_clock):
+        self.ws = ws
+        self.sleep = sleep
+        self.pace_clock = pace_clock
+        self.started = pace_clock()
+        self.index = 0
+        self.pending = bytearray()
+        self.finished = False
+
+    async def write(self, pcm):
+        self.pending.extend(pcm)
+        while len(self.pending) >= FRAME_BYTES:
+            frame = bytes(self.pending[:FRAME_BYTES])
+            del self.pending[:FRAME_BYTES]
+            await self.send_frame(frame)
+
+    async def send_frame(self, frame):
+        if self.index >= 10:
+            remaining = self.started + (self.index - 9) * 0.02 - self.pace_clock()
+            if remaining > 0:
+                await self.sleep(remaining)
+        self.index += 1
+        await self.ws.send_bytes(frame)
+
+    async def finish(self):
+        if self.finished:
+            return
+        self.finished = True
+        if self.pending:
+            frame = bytes(self.pending).ljust(FRAME_BYTES, b"\0")
+            self.pending.clear()
+            await self.send_frame(frame)
+        await self.ws.send_json({"type": "tts_end"})
+
+
 class Conversation:
     def __init__(self, ws, *, stt, tts, bridge, canned, log, sleep, clock, pace_clock):
         self.ws = ws
@@ -43,20 +81,18 @@ class Conversation:
             message["session"] = turn.device_number
         await self.ws.send_json(message)
 
-    async def play(self, pcm, turn, emotion="neutral"):
+    async def open_stream(self, turn, emotion="neutral"):
         await self.state("speaking", turn)
         await self.ws.send_json({
             "type": "tts_start", "sample_rate": 16000,
             "emotion": emotion if isinstance(emotion, str) and emotion in EMOTIONS else "neutral",
         })
-        started = self.pace_clock()
-        for index, offset in enumerate(range(0, len(pcm), FRAME_BYTES)):
-            if index >= 10:
-                remaining = started + (index - 9) * 0.02 - self.pace_clock()
-                if remaining > 0:
-                    await self.sleep(remaining)
-            await self.ws.send_bytes(pcm[offset:offset + FRAME_BYTES].ljust(FRAME_BYTES, b"\0"))
-        await self.ws.send_json({"type": "tts_end"})
+        return TtsStream(self.ws, self.sleep, self.pace_clock)
+
+    async def play(self, pcm, turn, emotion="neutral"):
+        stream = await self.open_stream(turn, emotion)
+        await stream.write(pcm)
+        await stream.finish()
 
     async def fail(self, code, turn):
         if code != "no_speech":

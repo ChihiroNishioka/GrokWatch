@@ -13,6 +13,7 @@ DEPLOY = ROOT / "deploy" / "macos"
 LABEL = "com.grokwatch.gateway"
 SCRIPT_NAMES = {
     "install.sh", "uninstall.sh", "status.sh", "run-gateway.sh", "keychain-add.sh",
+    "grant-context.sh", "set-realtime-keys.sh",
 }
 
 
@@ -36,6 +37,7 @@ def test_launch_agent_template_has_the_required_service_settings():
         "GROKWATCH_GATEWAY_PORT": "8765",
         "GROKWATCH_WHISPER_MODEL": "@WHISPER_MODEL@",
         "GROKWATCH_WAKE": "@WAKE@",
+        "GROKWATCH_CONTEXT_BIN": "@CONTEXT_BIN@",
     }
     assert not {"GROKWATCH_DEVICE_TOKEN", "GROKWATCH_WEBHOOK_URL", "GROKWATCH_WEBHOOK_KEY"} & environment.keys()
 
@@ -439,7 +441,7 @@ def test_mock_bridge_does_not_require_webhook_keychain_items(tmp_path, monkeypat
     assert "GROKWATCH_WEBHOOK_URL" in webhook.stderr
 
 
-@pytest.mark.parametrize("bridge", ["mock", "webhook"])
+@pytest.mark.parametrize("bridge", ["mock", "webhook", "realtime"])
 def test_runner_selects_the_bridge_and_removes_secret_environment(tmp_path, bridge):
     home = tmp_path / "home"
     uv = home / ".local" / "bin" / "uv"

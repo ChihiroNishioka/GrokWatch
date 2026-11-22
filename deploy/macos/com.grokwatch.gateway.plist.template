@@ -44,6 +44,8 @@
 		<string>@WHISPER_MODEL@</string>
 		<key>GROKWATCH_WAKE</key>
 		<string>@WAKE@</string>
+		<key>GROKWATCH_CONTEXT_BIN</key>
+		<string>@CONTEXT_BIN@</string>
 	</dict>
 </dict>
 </plist>

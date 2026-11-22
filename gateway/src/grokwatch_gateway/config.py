@@ -3,6 +3,8 @@ import math
 import os
 import re
 import subprocess
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 
 LOOPBACK = "127.0.0.1"
@@ -19,6 +21,20 @@ def read_secret(env, account):
     except (OSError, subprocess.TimeoutExpired, UnicodeError):
         return ""
     return result.stdout.rstrip("\r\n") if result.returncode == 0 else ""
+
+
+def _secure_url(url, schemes):
+    """Accept the secure scheme, or the plain one only on an IP loopback address (tests)."""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if host and parsed.scheme == schemes[0]:
+            return True
+        if host and parsed.scheme == schemes[1] and ip_address(host).is_loopback:
+            return True
+    except ValueError:
+        pass
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +74,17 @@ class Config:
     wake_model: str = ""
     wake_pattern: str = field(default="", repr=False)
     log_text: bool = False
+    openai_api_key: str = field(default="", repr=False)
+    task_webhook_url: str = field(default="", repr=False)
+    task_webhook_key: str = field(default="", repr=False)
+    realtime_model: str = "gpt-realtime-2.1"
+    realtime_voice: str = "marin"
+    realtime_url: str = "wss://api.openai.com/v1/realtime"
+    realtime_idle: float = 300
+    realtime_response_timeout: float = 30
+    search_model: str = "gpt-6.2-astra"
+    responses_url: str = "https://api.openai.com/v1/responses"
+    context_bin: str = "$HOME/.local/share/GrokWatch/bin/grokwatch-context"
     extra_redactions: tuple[str, ...] = field(default=(), repr=False)
 
     def __post_init__(self):
@@ -73,7 +100,7 @@ class Config:
             self.reply_timeout, self.hello_timeout, self.idle_timeout, self.retention,
         )):
             raise ValueError("Timeouts and retention must be finite and positive")
-        if self.bridge_name not in {"webhook", "gbot_cli", "mock"}:
+        if self.bridge_name not in {"webhook", "gbot_cli", "mock", "realtime"}:
             raise ValueError("Invalid GROKWATCH_BRIDGE")
         if self.stt_name not in {"mock", "whisper_cpp"} or self.tts_name not in {"mock", "macos_say"}:
             raise ValueError("Invalid STT or TTS provider")
@@ -81,6 +108,21 @@ class Config:
             raise ValueError("GROKWATCH_WHISPER_MODEL is required")
         if any(not math.isfinite(seconds) or seconds < 0 for seconds in (self.mock_delay, self.stt_delay)):
             raise ValueError("Mock delays must be finite and nonnegative")
+        if self.bridge_name == "realtime":
+            if not self.openai_api_key:
+                raise ValueError("GROKWATCH_OPENAI_API_KEY is required")
+            if not _secure_url(self.realtime_url, ("wss", "ws")) or not _secure_url(self.responses_url, ("https", "http")):
+                raise ValueError("Realtime and Responses URLs require HTTPS or WSS")
+            if not self.realtime_model or not self.realtime_voice or not self.search_model:
+                raise ValueError("Realtime model, voice, and search model must not be empty")
+            if not math.isfinite(self.realtime_idle) or self.realtime_idle <= 0 \
+                    or not math.isfinite(self.realtime_response_timeout) or self.realtime_response_timeout <= 0:
+                raise ValueError("Realtime timeouts must be finite and positive")
+            if bool(self.task_webhook_url) != bool(self.task_webhook_key):
+                raise ValueError("The task webhook URL and key must be set together")
+            if self.task_webhook_url:
+                from grokwatch_bridge.webhook import validate_url
+                validate_url(self.task_webhook_url, self.webhook_allow_loopback_http)
         if self.wake_pattern:
             try:
                 re.compile(self.wake_pattern, re.IGNORECASE)
@@ -105,6 +147,8 @@ class Config:
             raise ValueError("Invalid GROKWATCH_REPLY_LISTEN")
 
         bridge_name = get("BRIDGE", "webhook")
+        realtime = bridge_name == "realtime"
+        home = env.get("HOME", "")
         return cls(
             device_token=read_secret(env, "GROKWATCH_DEVICE_TOKEN"),
             gateway_host=get("GATEWAY_HOST"), gateway_port=number("GATEWAY_PORT", "8765", int),
@@ -112,8 +156,8 @@ class Config:
             ws_connection_limit=number("WS_CONNECTION_LIMIT", "4", int),
             bridge_name=bridge_name,
             webhook_allow_loopback_http=get("WEBHOOK_ALLOW_LOOPBACK_HTTP") == "1",
-            webhook_url=read_secret(env, "GROKWATCH_WEBHOOK_URL") if bridge_name == "webhook" else "",
-            webhook_key=read_secret(env, "GROKWATCH_WEBHOOK_KEY") if bridge_name == "webhook" else "",
+            webhook_url=read_secret(env, "GROKWATCH_WEBHOOK_URL") if bridge_name in ("webhook", "realtime") else "",
+            webhook_key=read_secret(env, "GROKWATCH_WEBHOOK_KEY") if bridge_name in ("webhook", "realtime") else "",
             agent_id=get("AGENT_ID"), gbot_bin=get("GBOT_BIN", "gbot"), gbot_args=get("GBOT_ARGS", "[]"),
             mock_mode=get("MOCK_MODE", "fixed"), mock_text=get("MOCK_REPLY", "試験の返事です"),
             mock_delay=number("MOCK_DELAY_S", "0"), mock_variant=get("MOCK_VARIANT", "normal"),
@@ -124,6 +168,16 @@ class Config:
             whisper_model=get("WHISPER_MODEL"), tts_voice=get("TTS_VOICE", "Kyoko"),
             wake=get("WAKE") == "1", wake_model=get("WAKE_MODEL"), wake_pattern=get("WAKE_PATTERN"),
             log_text=get("LOG_TEXT") == "1",
+            openai_api_key=read_secret(env, "GROKWATCH_OPENAI_API_KEY") if realtime else "",
+            task_webhook_url=read_secret(env, "GROKWATCH_TASK_WEBHOOK_URL") if realtime else "",
+            task_webhook_key=read_secret(env, "GROKWATCH_TASK_WEBHOOK_KEY") if realtime else "",
+            realtime_model=get("REALTIME_MODEL", "gpt-realtime-2.1"), realtime_voice=get("REALTIME_VOICE", "marin"),
+            realtime_url=get("REALTIME_URL", "wss://api.openai.com/v1/realtime"),
+            realtime_idle=number("REALTIME_IDLE_S", "300"),
+            realtime_response_timeout=number("REALTIME_RESPONSE_TIMEOUT_S", "30"),
+            search_model=get("SEARCH_MODEL", "gpt-6.2-astra"),
+            responses_url=get("RESPONSES_URL", "https://api.openai.com/v1/responses"),
+            context_bin=get("CONTEXT_BIN", home + "/.local/share/GrokWatch/bin/grokwatch-context"),
         )
 
     def bridge_env(self):
