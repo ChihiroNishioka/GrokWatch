@@ -1,0 +1,39 @@
+name: 版タグの作成
+
+# main への push で「ビルドとテスト」が成功したら、版番号のタグ v<版> を付ける。
+# 同じタグが既にあれば何もしない。版番号は scripts/release_version.py で揃っていることを確かめる。
+on:
+  workflow_run:
+    workflows: ["ビルドとテスト"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: 版番号のタグを付ける
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: タグの作成
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          version=$(python3 scripts/release_version.py)
+          tag="v${version}"
+          if gh api "repos/${REPO}/git/ref/tags/${tag}" --silent 2>/dev/null; then
+            echo "${tag} は作成済み"
+            exit 0
+          fi
+          gh api "repos/${REPO}/git/refs" -f ref="refs/tags/${tag}" -f sha="${SHA}" --silent
+          echo "${tag} を ${SHA} に作成"
