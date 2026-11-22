@@ -21,4 +21,8 @@ config GROKWATCH_DEVICE_TOKEN
     string "Device token"
     default ""
 
+config GROKWATCH_WAKE_WORD
+    bool "Enable Hi Grok wake word (requires gateway support)"
+    default y
+
 endmenu

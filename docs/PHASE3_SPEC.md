@@ -4,6 +4,8 @@
 
 Phase 3 でファームウェア、gateway、bridge を実装し、Phase 4 で開発用 Linux 機のビルドと自動テストで受け入れる。実機（StopWatch C152）、Mac、Mac mini には触れない。受け入れは「11. GREEN when」の全項目が CI で通ること。
 
+v1.1.0 の追加と変更は [v1.1.0 仕様](V1_1_SPEC.md) を参照。
+
 関連: [アーキテクチャ](ARCHITECTURE.md)、[webhook ブリッジ仕様](BRIDGE_WEBHOOK.md)、[アバター仕様](AVATAR_SPEC.md)、[参照動画の観察](AVATAR_REFERENCE.md)、[調査](RESEARCH.md)、[分かっている落とし穴](../LESSONS.md)。
 
 ## 1. オーナー決定（この仕様の前提）

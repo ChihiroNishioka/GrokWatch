@@ -37,12 +37,13 @@ DrawnFace scaleFace(const FaceModel& face, double scale) {
         const double height = std::max(2.0, eye.height * scale);
         drawn.eyes[index] = {faceCenter + (eye.x - faceCenter) * scale,
                              faceCenter + (eye.y - faceCenter) * scale,
-                             width, height, std::min(width, height) / 2.0};
+                             width, height, std::min(width, height) / 2.0,
+                             eye.lidInner, eye.lidOuter, eye.lidBottom};
     }
 
     drawn.ring = {face.ring.kind, face.ring.radius * scale,
                   face.ring.kind == RingKind::None ? 0.0 : std::max(2.0, face.ring.width * scale),
-                  face.ring.color, face.ring.segments};
+                  face.ring.color, face.ring.segments, face.ring.start, face.ring.sweep};
     drawn.dotRadius = std::max(2, static_cast<int>(std::lround(3 * scale)));
     const double spacing = std::max(17 * scale, 2 * drawn.dotRadius + 2.0);
     const double dotY = faceCenter + (face.dots[1].y - faceCenter) * scale;

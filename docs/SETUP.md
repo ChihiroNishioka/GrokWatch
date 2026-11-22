@@ -138,6 +138,18 @@ bash deploy/macos/status.sh
 tailscale serve --bg --https=443 --set-path=/v1/reply http://127.0.0.1:8767/v1/reply
 ```
 
+### 「Hi Grok」ウェイクワードを有効にする（v1.1.0）
+
+既定は無効です。有効にすると、StopWatch は Idle 中も収音し、声を検知した区間（最大 2.5 秒）だけを Gateway へ送ります。Gateway は whisper.cpp で文字起こしして「ハイグロック」「Hi Grok」などと照合します。音声と文字起こしは保存しません。仕様は [v1.1.0 仕様 §4](V1_1_SPEC.md) を参照してください。
+
+```bash
+bash deploy/macos/install.sh --bridge webhook --wake \
+  --whisper-model "$HOME/.local/share/GrokWatch/models/ggml-base.bin"
+curl --fail --silent http://127.0.0.1:8767/healthz   # "wake": true を確認
+```
+
+ファームウェア側は Kconfig の `CONFIG_GROKWATCH_WAKE_WORD`（既定で有効）と、Gateway が `hello_ok` で知らせる対応状況の両方が揃ったときだけ Idle 中に収音します。無効に戻すには `--wake` を付けずに `install.sh` を再実行します。
+
 ### Gateway をアンインストールする
 
 Tailscale Serve を設定した場合は、先に[返信口の経路を解除する手順](../deploy/macos/tailscale-serve.md)を実行します。アンインストールでこの LaunchAgent と plist を削除します。ログと Keychain 項目は残します。

@@ -35,6 +35,8 @@ struct App {
     bool playbackDrained = false;
     bool audioFault = false;
     grokwatch::AudioLevel level;
+    grokwatch::AudioLevel micLevel;
+    bool wakeListening = false;
 };
 
 class Lock {

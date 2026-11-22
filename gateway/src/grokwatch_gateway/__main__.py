@@ -35,13 +35,13 @@ class Gateway:
             self.bridge.reply_url = url
 
 
-def create_gateway(config, *, stt=None, tts=None, bridge=None, clock=time.time, sleep=asyncio.sleep, pace_clock=time.monotonic):
+def create_gateway(config, *, stt=None, wake_stt=None, tts=None, bridge=None, clock=time.time, sleep=asyncio.sleep, pace_clock=time.monotonic):
     logging.getLogger("aiohttp").setLevel(logging.CRITICAL + 1)
     registry = Registry(clock, config.retention)
     log = EventLog(log_text=config.log_text, tokens=registry.tokens, redactions=(
         config.device_token, config.webhook_key, config.webhook_url, config.agent_id,
         config.gateway_host, config.whisper_bin if "/" in config.whisper_bin else "",
-        config.whisper_model, config.gbot_bin if "/" in config.gbot_bin else "",
+        config.whisper_model, config.wake_model, config.gbot_bin if "/" in config.gbot_bin else "",
         *config.extra_redactions,
     ))
     if bridge is None:
@@ -49,11 +49,14 @@ def create_gateway(config, *, stt=None, tts=None, bridge=None, clock=time.time, 
     if stt is None:
         stt = (WhisperCpp(config.whisper_model, config.whisper_bin) if config.stt_name == "whisper_cpp"
                else MockStt(config.stt_text, config.stt_delay, config.stt_fail))
+    if wake_stt is None:
+        wake_stt = (WhisperCpp(config.wake_model or config.whisper_model, config.whisper_bin)
+                    if config.stt_name == "whisper_cpp" else stt)
     if tts is None:
         tts = MacosSay(config.tts_voice) if config.tts_name == "macos_say" else MockTts()
 
     canned = {}
-    devices = WebSocketServer(config, stt, tts, bridge, canned, log, clock, sleep, pace_clock)
+    devices = WebSocketServer(config, stt, tts, bridge, canned, log, clock, sleep, pace_clock, wake_stt)
     ws_app = web.Application()
     reply_app = web.Application(handler_args={"auto_decompress": False})
     gateway = Gateway(ws_app, reply_app, devices, registry, bridge)
@@ -81,7 +84,7 @@ def create_gateway(config, *, stt=None, tts=None, bridge=None, clock=time.time, 
             status="ok" if bridge_health.available else "degraded",
             bridge=dict(name=bridge.name, available=bridge_health.available),
             stt=config.stt_name, tts=config.tts_name,
-            device_connected=gateway.device_connected, version="0.1.0",
+            device_connected=gateway.device_connected, wake=config.wake, version="1.1.0",
         ))
 
     ws_app.on_startup.append(startup)

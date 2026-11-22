@@ -72,3 +72,29 @@ TEST(playback_buffer_discards_oldest_when_full) {
     }
     CHECK(!buffer.pop(frame));
 }
+
+TEST(mic_raw_level_mapping) {
+    CHECK_EQ(micRawLevel(0), 0);
+    CHECK_EQ(micRawLevel(400), 0);
+    CHECK_EQ(micRawLevel(399), 0);
+    CHECK_NEAR(micRawLevel(1700), 0.5, 1e-12);
+    CHECK_EQ(micRawLevel(3000), 1);
+    CHECK_EQ(micRawLevel(20000), 1);
+}
+
+TEST(audio_level_frame_raw_smooths_like_frame) {
+    AudioLevel raw;
+    AudioLevel legacy;
+    raw.frameRaw(20, rawLevel(3000));
+    legacy.frame(20, 3000);
+    CHECK_EQ(raw.value(20), legacy.value(20));
+    AudioLevel mic;
+    mic.frameRaw(20, 1);
+    CHECK_NEAR(mic.value(20), 1 - std::exp(-20.0 / 30), 1e-9);
+    mic.frameRaw(40, 0);
+    CHECK_NEAR(mic.value(40), (1 - std::exp(-20.0 / 30)) * std::exp(-20.0 / 120), 1e-9);
+    CHECK_EQ(mic.value(340), 0);
+    AudioLevel clamped;
+    clamped.frameRaw(20, 5);
+    CHECK_NEAR(clamped.value(20), 1 - std::exp(-20.0 / 30), 1e-9);
+}

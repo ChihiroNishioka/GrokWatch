@@ -12,4 +12,4 @@ def test_touch_task_continues_without_touch_device(repo_root):
     assert source.index("for (;;)") > guard.end()
 
     render = (repo_root / "firmware/main/render_task.cpp").read_text()
-    assert "app.face.frame(app.state, now, app.level.value(now))" in render
+    assert "app.face.frame(app.state, now, level)" in render

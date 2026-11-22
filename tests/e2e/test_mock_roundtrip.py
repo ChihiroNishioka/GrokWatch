@@ -87,10 +87,10 @@ async def test_roundtrip_modes(gateway, mode, kwargs, code, expected_states):
                 assert request is None and len(messages) == 2
                 return
             frames = [m for m in messages if isinstance(m, bytes)]
-            start = messages.index({"type": "tts_start", "sample_rate": 16000})
+            start = messages.index({"type": "tts_start", "sample_rate": 16000, "emotion": "sad" if code else "neutral"})
             end = messages.index({"type": "tts_end"})
             assert frames == messages[start + 1:end] and frames
-            assert messages.count({"type": "tts_start", "sample_rate": 16000}) == 1
+            assert messages.count({"type": "tts_start", "sample_rate": 16000, "emotion": "sad" if code else "neutral"}) == 1
             assert all(len(frame) == 640 for frame in frames)
             audio = await MockTts()(CANNED_TEXT[code] if code else "試験返事")
             assert b"".join(frames) == audio + b"\0" * (-len(audio) % 640)
@@ -223,3 +223,15 @@ async def test_device_drop_mid_turn_and_health(gateway):
             await device.stop()
             assert {"type": "tts_end"} in await device.idle()
             assert old.session_id != app.bridge.last_request.session_id
+
+
+@pytest.mark.parametrize("text, hit", [("Hi Grok", True), ("こんにちは", False)])
+async def test_wake_check_with_mock_stt(gateway, text, hit):
+    async with gateway(bridge_name="mock", wake=True, stt_text=text) as (_, config, client, base, _):
+        async with connected(client, base, config) as device:
+            await device.wake(1)
+            assert await device.receive() == {"type": "wake", "seq": 1, "hit": hit}
+            if hit:
+                await device.start()
+                await device.stop()
+                assert "speaking" in [m["state"] for m in await device.idle() if isinstance(m, dict) and "state" in m]

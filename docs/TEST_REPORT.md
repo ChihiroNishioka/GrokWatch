@@ -104,3 +104,25 @@ M5Unified の `Speaker.begin()` 失敗処理と `playRaw` 失敗時の `stop()` 
 実機の high-water 値は未確認である。GREEN の実機条件は起動から10分、再接続と1回以上の JSON・音声送受信の後、全タスクで空き 1,024 B 以上、stack overflow と再起動がないこととする。60秒ごとの診断ログで確認する。
 
 実機での見方: シリアルモニタで10分以上ログを取り、`diag stack free` を含む行を探す。値は各タスクの起動後の最小残量（bytes、uxTaskGetStackHighWaterMark）で、行を追うごとに小さい側へしか動かない。起動直後の1行目では判定しない。Wi-Fi の再接続と1回以上の会話（JSON の受信、音声の送受信）を終えたあとに出た次の行で、net（枠 12,288 B）、audio（6,144 B）、render（6,144 B）、buttons（3,072 B）、touch（4,096 B）のすべてが 1,024 以上であれば合格とする。その間に stack overflow のログと再起動がないことも確かめる。
+
+## v1.1.0 の検証
+
+2026-11-22 JST、Linux 開発機で v1.1.0（聞き取り中・考え中の表示、表情、ウェイクワード）を検証した。StopWatch C152、Mac、Mac mini には触れていない。
+
+| 対象 | 結果 | 実行内容 |
+| --- | --- | --- |
+| ホスト C++ 通常 | 123/123 通過 | `cmake -S firmware/host_test -B /tmp/v-host -DGROKWATCH_SANITIZERS=OFF`、build、ctest |
+| ホスト C++ ASan / UBSan | 123/123 通過 | 同じ対象を `-DGROKWATCH_SANITIZERS=ON`、`UBSAN_OPTIONS=halt_on_error=1` |
+| Python 3.13 | 254/254 通過 | `uv run --locked --all-packages --python 3.13 pytest gateway/tests bridge/tests tests/e2e tests/repo` |
+| Python 3.11 | 254/254 通過 | 同じ対象を Python 3.11 で実行 |
+| ファームウェア | クリーンビルド通過 | 追跡・未追跡（除外設定に従う）の firmware と scripts を新しい場所へ展開し、ESP-IDF v5.5.4 で `idf.py set-target esp32s3`、`idf.py build`。`dependencies.lock` は変化なし |
+| ビルド検査 | 通過 | `scripts/check_firmware_build.py`、`scripts/check_stack_frames.py`（最大フレーム 704 B、`Network::capture`） |
+| アプリサイズ | 1,202,768 bytes | factory 4 MB に収まる。実機バックアップ控えの `ota_1`（5,177,344 bytes）にも収まる |
+| PII 検査 | 通過 | `bash scripts/check_pii.sh` |
+
+### v1.1.0 の未検証（実機）
+
+- Listening のシアンのリングと Thinking の紫の回転弧が、既定音量の小さい顔でも目立つか。マイク音量の係数（400 / 2600）が声に合うか。最小の顔で最大太さのリングと白円の間が 1 px になる点。
+- まぶた（`fillTriangle`・`fillEllipse`・`setClipRect`）の描画結果と 30 fps の維持。
+- Idle 中の常時収音による電池持ち・発熱、誤検出の頻度、判定までの遅延、Idle 収音から Listening へのマイク再起動の遅れ。
+- whisper.cpp が実際に「ハイグロック」をどう書き起こすか（照合パターンの過不足）。

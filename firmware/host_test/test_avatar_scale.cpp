@@ -51,9 +51,15 @@ TEST(scale_one_is_identity) {
                             CHECK_EQ(drawn.eyes[i].width, face.eyes[i].width);
                             CHECK_EQ(drawn.eyes[i].height, face.eyes[i].height);
                             CHECK_EQ(drawn.eyes[i].radius, face.eyes[i].radius);
+                            CHECK_EQ(drawn.eyes[i].lidInner, face.eyes[i].lidInner);
+                            CHECK_EQ(drawn.eyes[i].lidOuter, face.eyes[i].lidOuter);
+                            CHECK_EQ(drawn.eyes[i].lidBottom, face.eyes[i].lidBottom);
                         }
                         CHECK_EQ(drawn.ring.radius, face.ring.radius);
                         CHECK_EQ(drawn.ring.width, face.ring.width);
+                        CHECK_EQ(drawn.ring.kind, face.ring.kind);
+                        CHECK_EQ(drawn.ring.start, face.ring.start);
+                        CHECK_EQ(drawn.ring.sweep, face.ring.sweep);
                         for (std::size_t i = 0; i < face.dots.size(); ++i) {
                             CHECK_EQ(drawn.dots[i].x, face.dots[i].x);
                             CHECK_EQ(drawn.dots[i].y, face.dots[i].y);
@@ -103,7 +109,8 @@ TEST(scaled_face_stays_inside_all_states) {
                                     CHECK(std::lround(drawn.ring.width) >= 2);
                                     const int outer = std::lround(drawn.ring.radius + drawn.ring.width / 2);
                                     const int inner = outer - std::lround(drawn.ring.width);
-                                    CHECK(inner > faceLimit + 1);
+                                    // Listening reaches 21 px at full volume; keep it clear of the face.
+                                    CHECK(inner > faceLimit + (state == State::Listening ? 0 : 1));
                                     CHECK(outer <= 232);
                                 }
                                 CHECK(drawn.dotRadius >= 2);
@@ -134,7 +141,6 @@ TEST(scaled_face_table) {
         double openEyeHeight;
         double blinkEyeHeight;
         double ringRadius;
-        double listeningWidth;
         double speakingMinWidth;
         double speakingMaxWidth;
         double errorWidth;
@@ -143,11 +149,11 @@ TEST(scaled_face_table) {
         int dotRadius;
     };
     const Dimensions table[] = {
-        {0, 73.7, 25.8, 18.4, 16.2, 35.4, 2.4, 78.8, 2.00, 2.00, 3.68, 2.21, 78.8, 6.26, 2},
-        {65, 119.3, 41.8, 29.8, 26.3, 57.3, 3.9, 127.7, 2.39, 2.00, 5.97, 3.58, 127.7, 10.1, 2},
-        {130, 151.8, 53.1, 38.0, 33.4, 72.9, 4.95, 162.5, 3.04, 2.00, 7.59, 4.56, 162.5, 12.9, 2},
-        {195, 178.5, 62.5, 44.6, 39.3, 85.7, 5.8, 191.0, 3.57, 2.00, 8.93, 5.36, 191.0, 15.2, 3},
-        {255, 200.0, 70.0, 50.0, 44.0, 96.0, 6.5, 214.0, 4.00, 2.00, 10.0, 6.00, 214.0, 17.0, 3},
+        {0, 73.7, 25.8, 18.4, 16.2, 35.4, 2.4, 78.8, 2.00, 3.68, 2.21, 78.8, 6.26, 2},
+        {65, 119.3, 41.8, 29.8, 26.3, 57.3, 3.9, 127.7, 2.00, 5.97, 3.58, 127.7, 10.1, 2},
+        {130, 151.8, 53.1, 38.0, 33.4, 72.9, 4.95, 162.5, 2.00, 7.59, 4.56, 162.5, 12.9, 2},
+        {195, 178.5, 62.5, 44.6, 39.3, 85.7, 5.8, 191.0, 2.00, 8.93, 5.36, 191.0, 15.2, 3},
+        {255, 200.0, 70.0, 50.0, 44.0, 96.0, 6.5, 214.0, 2.00, 10.0, 6.00, 214.0, 17.0, 3},
     };
     const Millis elapsedValues[] = {0, 499, 500, 20000, 20200, 20400};
     for (const auto& expected : table) {
@@ -169,7 +175,9 @@ TEST(scaled_face_table) {
 
             const auto listening = scaleFace(makeFace(State::Listening, {}, 1, 0, elapsed), scale);
             CHECK_NEAR(listening.ring.radius, expected.ringRadius, 0.05);
-            CHECK_NEAR(listening.ring.width, expected.listeningWidth, 0.05);
+            const double breath = 0.5 - 0.5 * std::cos(2 * std::acos(-1.0) * (elapsed % 1200) / 1200.0);
+            CHECK_NEAR(listening.ring.width, std::max(2.0, (6 + 3 * breath) * scale), 1e-9);
+            CHECK_EQ(listening.ring.color, 0x22c7ffu);
             const auto speakingMin = scaleFace(makeFace(State::Speaking, {}, 1, 0, elapsed), scale);
             const auto speakingMax = scaleFace(makeFace(State::Speaking, {}, 1, 1, elapsed), scale);
             CHECK_NEAR(speakingMin.ring.width, expected.speakingMinWidth, 0.05);
@@ -253,4 +261,24 @@ TEST(scale_changes_during_speaking_and_thinking) {
             if (value == 0) direction = 5;
         }
     }
+}
+
+TEST(scale_face_copies_lids_and_arc) {
+    const auto sad = shapeOf(Expression::Sad);
+    const auto happy = shapeOf(Expression::Happy);
+    auto face = makeFace(State::Thinking, {}, 1, 0, 250, sad);
+    auto drawn = scaleFace(face, 0.5);
+    for (const auto& eye : drawn.eyes) {
+        CHECK_EQ(eye.lidInner, 0.22);
+        CHECK_EQ(eye.lidOuter, 0.4);
+    }
+    CHECK_EQ(drawn.ring.kind, RingKind::Arc);
+    CHECK_EQ(drawn.ring.start, 90.0);
+    CHECK_EQ(drawn.ring.sweep, 100.0);
+    CHECK_EQ(drawn.ring.color, 0xb07cffu);
+    CHECK_NEAR(drawn.ring.radius, 107, 1e-9);
+    CHECK_NEAR(drawn.ring.width, 4, 1e-9);
+    drawn = scaleFace(makeFace(State::Idle, {}, 1, 0, 0, happy), 0.5);
+    CHECK_EQ(drawn.eyes[0].lidBottom, 0.55);
+    CHECK_EQ(drawn.eyes[1].lidBottom, 0.55);
 }

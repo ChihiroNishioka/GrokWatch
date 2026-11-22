@@ -35,6 +35,7 @@ def test_launch_agent_template_has_the_required_service_settings():
         "GROKWATCH_REPLY_LISTEN": "127.0.0.1:8767",
         "GROKWATCH_GATEWAY_PORT": "8765",
         "GROKWATCH_WHISPER_MODEL": "@WHISPER_MODEL@",
+        "GROKWATCH_WAKE": "@WAKE@",
     }
     assert not {"GROKWATCH_DEVICE_TOKEN", "GROKWATCH_WEBHOOK_URL", "GROKWATCH_WEBHOOK_KEY"} & environment.keys()
 
@@ -257,11 +258,13 @@ def _install_env(tmp_path, monkeypatch, *, port_pid="", missing_account=""):
     return home, state, log, temp, events, uv_log
 
 
-def _install(home, *, dry_run=False, bridge="mock"):
+def _install(home, *, dry_run=False, bridge="mock", wake=False):
     command = [
         "bash", str(DEPLOY / "install.sh"), "--bridge", bridge, "--repo", str(ROOT),
         "--whisper-model", str(home / "model.bin"),
     ]
+    if wake:
+        command.append("--wake")
     if dry_run:
         command.append("--dry-run")
     return subprocess.run(command, capture_output=True, text=True, env=os.environ.copy())
@@ -496,3 +499,12 @@ def test_setup_includes_the_exact_serve_backend_path():
     setup = (ROOT / "docs" / "SETUP.md").read_text()
     assert "tailscale serve --bg --https=443 --set-path=/v1/reply http://127.0.0.1:8767/v1/reply" in setup
     assert "../deploy/macos/tailscale-serve.md" in setup
+
+
+def test_install_sets_wake_flag_only_when_requested(tmp_path, monkeypatch):
+    home, _, _, _, _, _ = _install_env(tmp_path, monkeypatch)
+    plist_path = home / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    assert _install(home).returncode == 0
+    assert plistlib.loads(plist_path.read_bytes())["EnvironmentVariables"]["GROKWATCH_WAKE"] == "0"
+    assert _install(home, wake=True).returncode == 0
+    assert plistlib.loads(plist_path.read_bytes())["EnvironmentVariables"]["GROKWATCH_WAKE"] == "1"

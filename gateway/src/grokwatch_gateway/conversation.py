@@ -8,6 +8,9 @@ from .audio import SttError, TtsError
 from .protocol import FRAME_BYTES, MIN_FRAMES
 
 
+EMOTIONS = frozenset({"neutral", "happy", "sad", "surprised", "thinking"})
+
+
 @dataclass(frozen=True, slots=True)
 class ConversationTurn:
     device_number: int | None
@@ -40,9 +43,12 @@ class Conversation:
             message["session"] = turn.device_number
         await self.ws.send_json(message)
 
-    async def play(self, pcm, turn):
+    async def play(self, pcm, turn, emotion="neutral"):
         await self.state("speaking", turn)
-        await self.ws.send_json({"type": "tts_start", "sample_rate": 16000})
+        await self.ws.send_json({
+            "type": "tts_start", "sample_rate": 16000,
+            "emotion": emotion if isinstance(emotion, str) and emotion in EMOTIONS else "neutral",
+        })
         started = self.pace_clock()
         for index, offset in enumerate(range(0, len(pcm), FRAME_BYTES)):
             if index >= 10:
@@ -57,7 +63,7 @@ class Conversation:
             await self.state("error", turn)
         await self.error(code, turn=turn)
         if pcm := self.canned.get(code):
-            await self.play(pcm, turn)
+            await self.play(pcm, turn, "sad")
 
     async def run(self, pcm, turn):
         try:
@@ -118,4 +124,4 @@ class Conversation:
         except TtsError:
             await self.fail("tts_failed", turn)
             return
-        await self.play(pcm, turn)
+        await self.play(pcm, turn, reply.emotion)

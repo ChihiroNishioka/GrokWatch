@@ -207,7 +207,7 @@ async def test_tts_framing_and_pacing(monkeypatch):
             await device.stop()
             messages = await device.idle()
             assert messages[:2] == [{"type": "state", "state": "speaking"},
-                                    {"type": "tts_start", "sample_rate": 16000}]
+                                    {"type": "tts_start", "sample_rate": 16000, "emotion": "neutral"}]
             assert all(len(m) == 640 for m in messages[2:-2])
             assert audio(messages) == b"x" * (11 * 640 + 2) + b"\0" * 638
             assert sent == pytest.approx([100 + i * 0.001 for i in range(10)] + [100.02, 100.04])
@@ -259,3 +259,47 @@ async def test_tts_cancel(fake_commands, monkeypatch):
             await device.send("cancel")
             assert await device.idle() == [{"type": "state", "state": "idle"}]
             process_gone(pid)
+
+
+class EmotionBridge:
+    name = "emotion"
+
+    def __init__(self, emotion):
+        self.emotion = emotion
+
+    async def send_utterance(self, text, session):
+        from grokwatch_bridge.contract import ReplyChunk
+
+        yield ReplyChunk("返事", emotion=self.emotion)
+
+    async def health(self):
+        from grokwatch_bridge.contract import Health
+
+        return Health(True)
+
+
+@pytest.mark.parametrize("emotion, expected", [
+    ("happy", "happy"), ("sad", "sad"), ("surprised", "surprised"), ("thinking", "thinking"),
+    ("neutral", "neutral"), ("angry", "neutral"), ("", "neutral"),
+])
+async def test_reply_tts_start_carries_emotion(emotion, expected):
+    async with gateway(bridge=EmotionBridge(emotion)) as (_, config, client, base, _):
+        async with connected(client, base, config) as device:
+            await device.start()
+            await device.stop()
+            messages = await device.idle()
+            assert {"type": "tts_start", "sample_rate": 16000, "emotion": expected} in messages
+
+
+async def test_canned_failure_audio_is_sad():
+    from grokwatch_gateway.audio import SttError
+
+    async def stt(pcm):
+        raise SttError()
+
+    async with gateway(stt=stt, bridge_name="mock") as (_, config, client, base, _):
+        async with connected(client, base, config) as device:
+            await device.start()
+            await device.stop()
+            messages = await device.idle()
+            assert {"type": "tts_start", "sample_rate": 16000, "emotion": "sad"} in messages

@@ -322,7 +322,7 @@ wheels = [
 
 [[package]]
 name = "grokwatch-bridge"
-version = "0.1.0"
+version = "1.1.0"
 source = { editable = "bridge" }
 dependencies = [
     { name = "aiohttp" },
@@ -333,7 +333,7 @@ requires-dist = [{ name = "aiohttp", specifier = ">=3.12,<4" }]
 
 [[package]]
 name = "grokwatch-gateway"
-version = "0.1.0"
+version = "1.1.0"
 source = { editable = "gateway" }
 dependencies = [
     { name = "aiohttp" },

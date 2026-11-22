@@ -28,6 +28,11 @@ void drawRing(M5Canvas& sprite, const grokwatch::DrawnRing& ring) {
         sprite.fillArc(faceCenter, faceCenter, outer, inner, 0, 360, ring.color);
         return;
     }
+    if (ring.kind == grokwatch::RingKind::Arc) {
+        sprite.fillArc(faceCenter, faceCenter, outer, inner, static_cast<float>(ring.start),
+                       static_cast<float>(ring.start + ring.sweep), ring.color);
+        return;
+    }
     const float step = 360.0f / ring.segments;
     for (int segment = 0; segment < ring.segments; ++segment) {
         const float angle = segment * step;
@@ -35,18 +40,44 @@ void drawRing(M5Canvas& sprite, const grokwatch::DrawnRing& ring) {
     }
 }
 
+// Paints the eyelids over an already drawn eye. The inner side faces the face center.
+void drawLids(M5Canvas& sprite, const grokwatch::Eye& eye, bool leftEye) {
+    if (eye.lidInner <= 0 && eye.lidOuter <= 0 && eye.lidBottom <= 0) return;
+    const int left = std::lround(eye.x - eye.width / 2);
+    const int right = std::lround(eye.x + eye.width / 2);
+    const int top = std::lround(eye.y - eye.height / 2);
+    const int bottom = std::lround(eye.y + eye.height / 2);
+    sprite.setClipRect(left, top, right - left + 1, bottom - top + 1);
+    if (eye.lidInner > 0 || eye.lidOuter > 0) {
+        const int innerX = leftEye ? right : left;
+        const int outerX = leftEye ? left : right;
+        const int innerY = top + std::lround(eye.height * eye.lidInner);
+        const int outerY = top + std::lround(eye.height * eye.lidOuter);
+        sprite.fillTriangle(innerX, top, outerX, top, outerX, outerY, white);
+        sprite.fillTriangle(innerX, top, outerX, outerY, innerX, innerY, white);
+    }
+    if (eye.lidBottom > 0) {
+        const int ry = std::lround(0.9 * eye.height);
+        const int centerY = bottom - std::lround(eye.height * eye.lidBottom) + ry;
+        sprite.fillEllipse(std::lround(eye.x), centerY, std::lround(1.2 * eye.width), ry, white);
+    }
+    sprite.clearClipRect();
+}
+
 void drawFace(M5Canvas& sprite, const grokwatch::FaceModel& face, double scale) {
     const auto drawn = grokwatch::scaleFace(face, scale);
     sprite.fillScreen(black);
     sprite.fillCircle(faceCenter, faceCenter, std::lround(drawn.radius), white);
 
-    for (const auto& eye : drawn.eyes) {
+    for (std::size_t index = 0; index < drawn.eyes.size(); ++index) {
+        const auto& eye = drawn.eyes[index];
         const int width = std::lround(eye.width);
         const int height = std::lround(eye.height);
         const int radius = std::min<int>(std::lround(eye.radius), std::min(width, height) / 2);
         sprite.fillRoundRect(std::lround(eye.x - eye.width / 2),
                              std::lround(eye.y - eye.height / 2),
                              width, height, radius, black);
+        drawLids(sprite, eye, index == 0);
     }
 
     drawRing(sprite, drawn.ring);
@@ -81,8 +112,9 @@ void renderTask(void* context) {
         const auto frame = [&app] {
             const Lock lock(app.mutex);
             const auto now = nowMs();
-            return std::pair{app.face.frame(app.state, now, app.level.value(now)),
-                             app.volume.value()};
+            const auto level = app.state == grokwatch::State::Listening ? app.micLevel.value(now)
+                                                                         : app.level.value(now);
+            return std::pair{app.face.frame(app.state, now, level), app.volume.value()};
         }();
         drawFace(sprite, frame.first, grokwatch::avatarScale(frame.second));
         sprite.pushSprite(x, y);

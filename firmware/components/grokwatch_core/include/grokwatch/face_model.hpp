@@ -6,6 +6,7 @@
 
 #include "grokwatch/blink.hpp"
 #include "grokwatch/drift.hpp"
+#include "grokwatch/expression.hpp"
 
 namespace grokwatch {
 
@@ -15,9 +16,12 @@ struct Eye {
     double width;
     double height;
     double radius;
+    double lidInner = 0;
+    double lidOuter = 0;
+    double lidBottom = 0;
 };
 
-enum class RingKind { None, Solid, Dashed };
+enum class RingKind { None, Solid, Dashed, Arc };
 
 struct Ring {
     RingKind kind = RingKind::None;
@@ -25,6 +29,8 @@ struct Ring {
     double width = 0;
     std::uint32_t color = 0;
     int segments = 0;
+    double start = 0;
+    double sweep = 0;
 };
 
 struct FaceModel {
@@ -37,7 +43,7 @@ struct FaceModel {
 };
 
 FaceModel makeFace(State state, Vec gaze = {}, double blink = 1, double level = 0,
-                   Millis elapsed = 0);
+                   Millis elapsed = 0, const ExpressionShape& shape = {});
 
 class FaceAnimator {
 public:
@@ -45,6 +51,7 @@ public:
     FaceModel frame(State state, Millis now, double level = 0);
     void touch(const GestureEvent& event, Millis now);
     void triggerBlink(Millis now);
+    void setExpression(Expression expression, Millis now);
 
 private:
     Millis enteredAt_;
@@ -54,6 +61,7 @@ private:
     GazeTracker gaze_;
     Drift drift_;
     Blink blink_;
+    ExpressionAnimator expression_;
 };
 
 }  // namespace grokwatch
